@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <script>
+      // Force fetch to be configurable/writable early to prevent "Cannot set property fetch" errors
+      // from libraries that attempt to polyfill it.
+      (function() {
+        try {
+          var originalFetch = window.fetch;
+          Object.defineProperty(window, 'fetch', {
+            configurable: true,
+            enumerable: true,
+            get: function() { return originalFetch; },
+            set: function(v) { 
+              console.warn('FluxMark: Ignored fetch overwrite attempt.');
+            }
+          });
+        } catch (e) {
+          console.error('FluxMark: Failed to set up fetch guard.', e);
+        }
+      })();
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FluxMark - 高级 Markdown 在线编辑器</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

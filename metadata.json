@@ -1,0 +1,6 @@
+{
+  "name": "FluxMark",
+  "description": "一款仿 Typora 风格的高端 Markdown 在线编辑器，支持实时预览、LaTeX 公式、富文本交互及多种导出格式。",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
