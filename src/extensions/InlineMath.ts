@@ -37,7 +37,7 @@ export const InlineMath = Node.create({
   },
 
   renderHTML({ HTMLAttributes }) {
-    return ['span', mergeAttributes(HTMLAttributes, { 'data-type': 'inline-math' }), 0];
+    return ['span', mergeAttributes(HTMLAttributes, { 'data-type': 'inline-math' })];
   },
 
   addNodeView() {

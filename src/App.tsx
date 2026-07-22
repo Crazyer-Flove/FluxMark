@@ -4,8 +4,9 @@ import {
   Monitor, Layout, Sun, Moon, Droplets, 
   ChevronLeft, ChevronRight, Maximize2, ZoomIn, ZoomOut, PanelLeftClose, PanelLeft,
   Folder, FilePlus, ChevronDown, Superscript as SuperscriptIcon, Subscript as SubscriptIcon,
-  Type, Palette, AlignCenter, AlignLeft, Trash2, Printer, MousePointer2, Pencil, Eraser, Timer, RefreshCcw,
-  FileCode, Share2, HelpCircle, FileDown, Upload, Bold, Italic, List, Heading1, Heading2, Quote, Highlighter, Video as VideoIcon
+  Type, Palette, AlignCenter, AlignLeft, Trash2, Printer, MousePointer2, Pencil, Eraser, Timer, RefreshCcw, Target,
+  FileCode, Share2, HelpCircle, FileDown, Upload, Bold, Italic, List, Heading1, Heading2, Quote, Highlighter, Video as VideoIcon,
+  AlertCircle, Check, Plus
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toCanvas } from 'html-to-image';
@@ -14,6 +15,8 @@ import { saveAs } from 'file-saver';
 import * as docx from 'docx';
 import Cropper from 'cropperjs';
 import 'cropperjs/dist/cropper.css';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 
 // Tiptap Imports
 import { useEditor, EditorContent } from '@tiptap/react';
@@ -125,14 +128,18 @@ export default function App() {
   const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>('outline');
   const [resources, setResources] = useState<{ name: string, type: 'file' | 'folder', handle?: any }[]>([]);
   const [outline, setOutline] = useState<{ id: string, text: string, level: number, pos?: number }[]>([]);
+  const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null);
+  const [collapsedHeadings, setCollapsedHeadings] = useState<Record<string, boolean>>({});
   const [selection, setSelection] = useState<SelectionState>({ top: 0, left: 0, visible: false, text: '', range: null });
   const [showAIChat, setShowAIChat] = useState<boolean>(false);
   const [showSupportModal, setShowSupportModal] = useState<boolean>(false);
   const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
   const [cropImage, setCropImage] = useState<string | null>(null);
   
-  // Presentation Annotation State
-  const [presentTool, setPresentTool] = useState<'select' | 'pen' | 'eraser'>('select');
+  // Presentation Annotation & Slide State
+  const [currentSlideIndex, setCurrentSlideIndex] = useState<number>(0);
+  const [presentTool, setPresentTool] = useState<'select' | 'pen' | 'eraser' | 'laser'>('select');
+  const [laserPos, setLaserPos] = useState<{ x: number; y: number; visible: boolean }>({ x: 0, y: 0, visible: false });
   const [presentColor, setPresentColor] = useState<string>('#3b82f6');
   const [presentSize, setPresentSize] = useState<number>(3);
   const [showTimer, setShowTimer] = useState<boolean>(false);
@@ -141,6 +148,26 @@ export default function App() {
   const [countdownValue, setCountdownValue] = useState<number>(0);
   const [isCountdownMode, setIsCountdownMode] = useState<boolean>(false);
   const [showCountdownModal, setShowCountdownModal] = useState<boolean>(false);
+  const [timerScale, setTimerScale] = useState<number>(1);
+  const [countdownModalScale, setCountdownModalScale] = useState<number>(1);
+
+  // Custom UI notification and dialog states
+  const [docName, setDocName] = useState<string>('当前文档.md');
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    onConfirm: () => void;
+  } | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => {
+      setToastMsg((prev) => (prev === msg ? null : prev));
+    }, 2500);
+  };
 
   // Audio Context for Alarm
   const playAlarmSound = useCallback((frequency = 440, duration = 0.15) => {
@@ -179,6 +206,8 @@ export default function App() {
   const lastPos = useRef({ x: 0, y: 0 });
 
   // Tiptap Editor Initialization
+  const FLUXMARK_STORAGE_KEY = 'fluxmark_saved_doc_v1';
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -215,13 +244,23 @@ export default function App() {
       InlineMath,
       Video,
     ],
-    content: transformMarkdownToMathHTML(initialMarkdown),
+    content: (() => {
+      const saved = localStorage.getItem(FLUXMARK_STORAGE_KEY);
+      if (saved !== null) {
+        return saved;
+      }
+      return transformMarkdownToMathHTML(initialMarkdown);
+    })(),
     editorProps: {
       attributes: {
         class: 'prose-custom w-full outline-none min-h-[600px] border-none focus:ring-0',
       },
     },
     onUpdate: ({ editor }) => {
+      // Auto-save content to localStorage
+      const html = editor.getHTML();
+      localStorage.setItem(FLUXMARK_STORAGE_KEY, html);
+
       // Update outline
       const headings: { id: string, text: string, level: number, pos: number }[] = [];
       editor.state.doc.descendants((node, pos) => {
@@ -237,6 +276,155 @@ export default function App() {
       setOutline(headings);
     }
   });
+
+  const isUpdatingFromSlideRef = useRef(false);
+
+  // Tiptap Slide Editor for Full-Screen Presentation Mode Editing
+  const slideEditor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        codeBlock: false,
+      }),
+      Markdown.configure({
+        linkify: true,
+        breaks: true,
+      }),
+      Placeholder.configure({
+        placeholder: '在此编辑本页幻灯片内容...',
+      }),
+      CharacterCount,
+      Image.configure({
+        allowBase64: true,
+        HTMLAttributes: {
+          class: 'resizable-image',
+        },
+      }),
+      TextStyle,
+      Color,
+      Highlight.configure({
+        multicolor: true,
+      }),
+      Superscript,
+      Subscript,
+      TextAlign.configure({
+        types: ['heading', 'paragraph', 'image'],
+      }),
+      CustomCodeBlock.configure({
+        lowlight,
+      }),
+      BlockMath,
+      InlineMath,
+      Video,
+    ],
+    content: '',
+    editorProps: {
+      attributes: {
+        class: 'prose-custom w-full outline-none min-h-[360px] border-none focus:ring-0 text-[var(--text-primary)]',
+      },
+    },
+    onUpdate: ({ editor: currentSlideEd }) => {
+      if (isUpdatingFromSlideRef.current || !editor) return;
+      const currentSlideHtml = currentSlideEd.getHTML();
+
+      const subSlides = currentSlideHtml.split(/<hr\b[^>]*\/?>/i);
+      const fullHtml = editor.getHTML();
+      const rawSlides = fullHtml.split(/<hr\b[^>]*\/?>/i);
+
+      const targetIdx = Math.min(Math.max(0, currentSlideIndex), rawSlides.length - 1);
+
+      if (subSlides.length > 1) {
+        rawSlides.splice(targetIdx, 1, ...subSlides);
+        const newFullContent = rawSlides.join('<hr>');
+        //@ts-ignore
+        editor.commands.setContent(newFullContent, false);
+        setCurrentSlideIndex(targetIdx + 1);
+      } else {
+        rawSlides[targetIdx] = currentSlideHtml;
+        const newFullContent = rawSlides.join('<hr>');
+        //@ts-ignore
+        editor.commands.setContent(newFullContent, false);
+      }
+    },
+  });
+
+  // Sync active slide content into slideEditor whenever slide changes or presentation toggles
+  useEffect(() => {
+    if (isPresentation && slideEditor && editor) {
+      const fullHtml = editor.getHTML();
+      const rawSlides = fullHtml.split(/<hr\b[^>]*\/?>/i);
+      const targetIdx = Math.min(Math.max(0, currentSlideIndex), rawSlides.length - 1);
+      const targetContent = rawSlides[targetIdx] || '<p></p>';
+
+      if (slideEditor.getHTML() !== targetContent) {
+        isUpdatingFromSlideRef.current = true;
+        //@ts-ignore
+        slideEditor.commands.setContent(targetContent, false);
+        isUpdatingFromSlideRef.current = false;
+      }
+    }
+  }, [isPresentation, currentSlideIndex, editor, slideEditor]);
+
+  // Slide management handlers in presentation mode
+  const handleAddSlideInPresentation = () => {
+    if (!editor) return;
+    const fullHtml = editor.getHTML();
+    const rawSlides = fullHtml.split(/<hr\b[^>]*\/?>/i);
+    const targetIdx = Math.min(Math.max(0, currentSlideIndex), rawSlides.length - 1);
+    const insertIdx = targetIdx + 1;
+    rawSlides.splice(insertIdx, 0, '<h2>新幻灯片</h2><p>点击在此处输入内容...</p>');
+    const newFull = rawSlides.join('<hr>');
+    editor.commands.setContent(newFull);
+    setCurrentSlideIndex(insertIdx);
+  };
+
+  const handleDeleteSlideInPresentation = () => {
+    if (!editor) return;
+    const fullHtml = editor.getHTML();
+    const rawSlides = fullHtml.split(/<hr\b[^>]*\/?>/i);
+    const targetIdx = Math.min(Math.max(0, currentSlideIndex), rawSlides.length - 1);
+
+    if (rawSlides.length <= 1) {
+      editor.commands.setContent('<p></p>');
+      slideEditor?.commands.setContent('<p></p>');
+      return;
+    }
+
+    rawSlides.splice(targetIdx, 1);
+    const newFull = rawSlides.join('<hr>');
+    editor.commands.setContent(newFull);
+    setCurrentSlideIndex(Math.max(0, targetIdx - 1));
+  };
+
+  const handleClearSlideInPresentation = () => {
+    slideEditor?.commands.setContent('<p></p>');
+  };
+
+  const getSlideDensityClass = () => {
+    if (!slideEditor) return 'slide-density-normal';
+    const text = slideEditor.getText().trim();
+    const len = text.length;
+    const html = slideEditor.getHTML();
+
+    const hasCode = html.includes('<pre') || html.includes('<code');
+    const hasImage = html.includes('<img');
+    const hasTable = html.includes('<table');
+    const hasVideo = html.includes('<iframe') || html.includes('<video');
+
+    if (hasCode || hasImage || hasTable || hasVideo) {
+      if (len < 80) return 'slide-density-medium';
+      return 'slide-density-normal';
+    }
+
+    if (len < 40) {
+      return 'slide-density-hero';
+    } else if (len < 130) {
+      return 'slide-density-sparse';
+    } else if (len < 320) {
+      return 'slide-density-medium';
+    } else {
+      return 'slide-density-normal';
+    }
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -272,6 +460,94 @@ export default function App() {
       setOutline(headings);
     }
   }, [editor]);
+
+  // Scroll synchronization for active outline heading
+  useEffect(() => {
+    const viewport = document.getElementById('editor-viewport');
+    if (!viewport || !editor || outline.length === 0 || isPresentation) return;
+
+    const handleScroll = () => {
+      const viewportRect = viewport.getBoundingClientRect();
+      const triggerOffset = 150; // Threshold from top of viewport
+
+      let currentActiveId = outline[0]?.id || null;
+
+      for (let i = 0; i < outline.length; i++) {
+        const item = outline[i];
+        if (item.pos === undefined) continue;
+        try {
+          const coords = editor.view.coordsAtPos(item.pos);
+          const topRelativeToViewport = coords.top - viewportRect.top;
+          if (topRelativeToViewport <= triggerOffset) {
+            currentActiveId = item.id;
+          } else {
+            break;
+          }
+        } catch {
+          // ignore position calculation error during intermediate edits
+        }
+      }
+
+      setActiveHeadingId(currentActiveId);
+    };
+
+    handleScroll();
+
+    viewport.addEventListener('scroll', handleScroll, { passive: true });
+    return () => viewport.removeEventListener('scroll', handleScroll);
+  }, [editor, outline, isPresentation]);
+
+  // Auto scroll active item in sidebar outline
+  useEffect(() => {
+    if (activeHeadingId && activeSidebarTab === 'outline' && showSidebar) {
+      const el = document.getElementById(`outline-item-${activeHeadingId}`);
+      if (el) {
+        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+  }, [activeHeadingId, activeSidebarTab, showSidebar]);
+
+  // Outline Folding Helpers
+  const hasSubHeadings = (index: number) => {
+    if (index >= outline.length - 1) return false;
+    return outline[index + 1].level > outline[index].level;
+  };
+
+  const isItemVisibleInTree = (index: number) => {
+    const currentLevel = outline[index].level;
+    let targetLevel = currentLevel;
+
+    for (let j = index - 1; j >= 0; j--) {
+      const prev = outline[j];
+      if (prev.level < targetLevel) {
+        if (collapsedHeadings[prev.id]) {
+          return false;
+        }
+        targetLevel = prev.level;
+      }
+    }
+    return true;
+  };
+
+  const toggleCollapseHeading = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setCollapsedHeadings(prev => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
+  };
+
+  const expandAllHeadings = () => setCollapsedHeadings({});
+
+  const collapseAllHeadings = () => {
+    const newMap: Record<string, boolean> = {};
+    outline.forEach((item, idx) => {
+      if (hasSubHeadings(idx)) {
+        newMap[item.id] = true;
+      }
+    });
+    setCollapsedHeadings(newMap);
+  };
 
   // Outline navigation
   const scrollToHeading = (pos: number) => {
@@ -382,14 +658,56 @@ export default function App() {
   // 文件操作
   const createNewFile = () => {
     if (!editor) return;
-    // Check if there is content to save
     const currentContent = editor.getHTML();
-    if (currentContent !== '<p></p>' && currentContent !== '') {
-      if (confirm('您的当前项目尚未保存，是否在新建前进行保存？')) {
-        saveFile();
-      }
+    const isDocEmpty = !currentContent || currentContent === '<p></p>' || currentContent === '<p></p>\n' || currentContent.trim() === '';
+
+    const executeCreate = () => {
+      editor.commands.setContent('<p></p>');
+      editor.commands.focus();
+      setDocName('新建空白文档.md');
+      localStorage.setItem(FLUXMARK_STORAGE_KEY, '');
+      showToast('已新建空白文档');
+    };
+
+    if (!isDocEmpty) {
+      setConfirmModal({
+        isOpen: true,
+        title: '新建空白文档',
+        message: '确定要新建空白文档吗？当前编辑的内容将被覆盖。',
+        confirmText: '确定新建',
+        onConfirm: executeCreate,
+      });
+    } else {
+      executeCreate();
     }
-    editor.commands.setContent('');
+  };
+
+  const loadSampleDoc = () => {
+    if (!editor) return;
+    
+    const executeLoad = () => {
+      const sampleHtml = transformMarkdownToMathHTML(initialMarkdown);
+      editor.commands.setContent(sampleHtml);
+      editor.commands.focus();
+      setDocName('示例演示文档.md');
+      localStorage.setItem(FLUXMARK_STORAGE_KEY, sampleHtml);
+      showToast('已加载示例模版');
+    };
+
+    const currentContent = editor.getHTML();
+    const isDocEmpty = !currentContent || currentContent === '<p></p>' || currentContent === '<p></p>\n' || currentContent.trim() === '';
+
+    if (!isDocEmpty) {
+      setConfirmModal({
+        isOpen: true,
+        title: '加载示例模版',
+        message: '确定要重置并加载示例模版吗？当前编辑的内容将被替换。',
+        confirmText: '确定加载',
+        onConfirm: executeLoad,
+      });
+    } else {
+      executeLoad();
+    }
   };
 
   const openDirectory = async () => {
@@ -416,6 +734,7 @@ export default function App() {
         return [...filtered, ...newResources];
       });
       setActiveSidebarTab('resources');
+      showToast(`已打开工作区 ${dirHandle.name}`);
     } catch (err: any) {
       if (err.name === 'SecurityError' || err.name === 'NotAllowedError') {
         // Fallback to hidden input if blocked by security policy or rejected
@@ -442,6 +761,7 @@ export default function App() {
       }
       setResources(prev => [...prev, ...newResources]);
       setActiveSidebarTab('resources');
+      showToast(`已打开项目 ${folderName}`);
     }
   };
 
@@ -459,6 +779,8 @@ export default function App() {
       const file = await handle.getFile();
       const content = await file.text();
       editor?.commands.setContent(content);
+      setDocName(handle.name);
+      showToast(`已打开文档 ${handle.name}`);
       
       // Add to resources if not already there
       setResources(prev => {
@@ -483,6 +805,8 @@ export default function App() {
       reader.onload = (re) => {
         if (re.target?.result) {
           editor.commands.setContent(re.target.result as string);
+          setDocName(file.name);
+          showToast(`已打开文档 ${file.name}`);
         }
       };
       reader.readAsText(file);
@@ -493,7 +817,9 @@ export default function App() {
     if (!editor) return;
     const markdownOutput = (editor.storage as any).markdown.getMarkdown();
     const blob = new Blob([markdownOutput], { type: 'text/markdown;charset=utf-8' });
-    saveAs(blob, 'fluxmark-document.md');
+    const fileName = docName.endsWith('.md') ? docName : `${docName}.md`;
+    saveAs(blob, fileName);
+    showToast(`已保存文件 ${fileName}`);
   };
 
   // 导出操作
@@ -1044,8 +1370,10 @@ export default function App() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Drawing Logic
+  // Drawing & Laser Pointer Logic
   const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
+    if (presentTool === 'select') return;
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -1056,21 +1384,32 @@ export default function App() {
     const x = (clientX - rect.left);
     const y = (clientY - rect.top);
 
-    if (presentTool === 'select') return;
+    if (presentTool === 'laser') {
+      setLaserPos({ x: clientX, y: clientY, visible: true });
+      return;
+    }
+
     isDrawing.current = true;
     lastPos.current = { x, y };
   };
 
   const draw = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!isDrawing.current || presentTool === 'select' || !canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (presentTool === 'select' || !canvasRef.current) return;
 
+    const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
 
-    const clientX = ('touches' in e) ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
-    const clientY = ('touches' in e) ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
+    const clientX = ('touches' in e) ? (e as any).touches[0].clientX : (e as React.MouseEvent).clientX;
+    const clientY = ('touches' in e) ? (e as any).touches[0].clientY : (e as React.MouseEvent).clientY;
+
+    if (presentTool === 'laser') {
+      setLaserPos({ x: clientX, y: clientY, visible: true });
+      return;
+    }
+
+    if (!isDrawing.current) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
     const x = (clientX - rect.left);
     const y = (clientY - rect.top);
@@ -1094,7 +1433,9 @@ export default function App() {
   };
 
   const stopDrawing = () => {
-    isDrawing.current = false;
+    if (presentTool !== 'laser') {
+      isDrawing.current = false;
+    }
   };
 
   const clearCanvas = () => {
@@ -1132,9 +1473,86 @@ export default function App() {
     
     return () => window.removeEventListener('resize', updateCanvasSize);
   }, [isPresentation]);
+
+  // Keyboard navigation for presentation slides
+  useEffect(() => {
+    if (!isPresentation) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isEditing = (e.target as HTMLElement)?.closest('.ProseMirror') || (e.target as HTMLElement)?.isContentEditable || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+
+      const fullHtml = editor?.getHTML() || '';
+      const rawSlides = fullHtml.split(/<hr\b[^>]*\/?>/i);
+      const slideCount = rawSlides.length || 1;
+
+      if (isEditing) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowRight') {
+          e.preventDefault();
+          setCurrentSlideIndex(prev => Math.min(slideCount - 1, prev + 1));
+        } else if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowLeft') {
+          e.preventDefault();
+          setCurrentSlideIndex(prev => Math.max(0, prev - 1));
+        } else if (e.key === 'PageDown') {
+          e.preventDefault();
+          setCurrentSlideIndex(prev => Math.min(slideCount - 1, prev + 1));
+        } else if (e.key === 'PageUp') {
+          e.preventDefault();
+          setCurrentSlideIndex(prev => Math.max(0, prev - 1));
+        } else if (e.key === 'Escape') {
+          setIsPresentation(false);
+        }
+        return;
+      }
+
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ' || e.key === 'PageDown') {
+        e.preventDefault();
+        setCurrentSlideIndex(prev => Math.min(slideCount - 1, prev + 1));
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
+        e.preventDefault();
+        setCurrentSlideIndex(prev => Math.max(0, prev - 1));
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        setCurrentSlideIndex(0);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        setCurrentSlideIndex(slideCount - 1);
+      } else if (e.key === 'Escape') {
+        setIsPresentation(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isPresentation, editor]);
+
+  const renderSlideHtml = (rawHtml: string) => {
+    if (!rawHtml || !rawHtml.trim()) {
+      return '<div class="text-center text-slate-400 italic py-16">（本页暂无内容）</div>';
+    }
+    let processed = rawHtml
+      .replace(/<span\s+data-type="inline-math"\s+data-latex="([^"]*)"[^>]*><\/span>/gi, (_, latex) => {
+        const decodedLatex = latex.replace(/&quot;/g, '"');
+        try {
+          return katex.renderToString(decodedLatex, { displayMode: false, throwOnError: false });
+        } catch {
+          return decodedLatex;
+        }
+      })
+      .replace(/<div\s+data-type="block-math"\s+data-latex="([^"]*)"[^>]*><\/div>/gi, (_, latex) => {
+        const decodedLatex = latex.replace(/&quot;/g, '"');
+        try {
+          return katex.renderToString(decodedLatex, { displayMode: true, throwOnError: false });
+        } catch {
+          return decodedLatex;
+        }
+      });
+    return processed;
+  };
+
   const togglePresentation = () => {
     setIsPresentation(!isPresentation);
     if (!isPresentation) {
+      setCurrentSlideIndex(0);
       containerRef.current?.requestFullscreen().catch(() => {});
       setTimerTime(0);
       setIsCountdownMode(false);
@@ -1146,6 +1564,10 @@ export default function App() {
       }
     }
   };
+
+  const rawSlides = (editor?.getHTML() || '').split(/<hr\b[^>]*\/?>/i);
+  const slides = rawSlides.length > 0 ? rawSlides : [''];
+  const validSlideIndex = Math.min(Math.max(0, currentSlideIndex), slides.length - 1);
 
   return (
     <div ref={containerRef} className="h-screen flex flex-col font-sans relative overflow-hidden select-none bg-[var(--bg-secondary)]">
@@ -1172,6 +1594,7 @@ export default function App() {
               <ToolbarItem icon={<FilePlus size={16} />} label="新建" onClick={createNewFile} />
               <ToolbarItem icon={<Upload size={16} />} label="打开" onClick={() => fileInputRef.current?.click()} />
               <ToolbarItem icon={<Save size={16} />} label="保存内容" onClick={saveFile} />
+              <ToolbarItem icon={<RefreshCcw size={16} />} label="加载示例模版" onClick={loadSampleDoc} />
             </ToolbarGroup>
             
             <ToolbarGroup label="导出">
@@ -1276,33 +1699,100 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto no-scrollbar">
+              <div className="flex-1 overflow-hidden flex flex-col">
                 {activeSidebarTab === 'outline' ? (
-                  <div className="p-2">
-                    {outline.length > 0 ? (
-                      <div className="space-y-1">
-                        {outline.map((item) => (
+                  <div className="flex flex-col h-full overflow-hidden">
+                    {/* Outline Toolbar */}
+                    {outline.length > 0 && (
+                      <div className="px-3 py-2 border-b border-[var(--border)] flex items-center justify-between bg-[var(--bg-primary)]/50 shrink-0 select-none">
+                        <span className="text-[11px] font-bold text-[var(--text-secondary)]">
+                          共 {outline.length} 个章节
+                        </span>
+                        <div className="flex items-center gap-1">
                           <button
-                            key={item.id}
-                            onClick={() => {
-                              if (item.pos !== undefined) scrollToHeading(item.pos);
-                            }}
-                            className={`w-full text-left p-2 rounded-lg text-sm transition-all hover:bg-white hover:shadow-sm group flex gap-2 ${
-                              item.level === 1 ? 'font-semibold text-[var(--accent)]' : 'text-[var(--text-primary)]'
-                            }`}
-                            style={{ paddingLeft: `${(item.level - 1) * 16 + 8}px` }}
+                            onClick={expandAllHeadings}
+                            className="px-2 py-0.5 text-[10px] font-medium text-slate-500 hover:text-[var(--accent)] hover:bg-slate-100 rounded transition-colors cursor-pointer"
+                            title="展开全部"
                           >
-                            <span className="text-[var(--text-secondary)] opacity-50 group-hover:opacity-100 shrink-0">#</span>
-                            <span className="truncate">{item.text}</span>
+                            展开全部
                           </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="h-full flex flex-col items-center justify-center text-[var(--text-secondary)] py-20 opacity-50">
-                        <List size={32} className="mb-2" />
-                        <p className="text-xs">暂无大纲内容</p>
+                          <span className="text-slate-300 text-[10px]">|</span>
+                          <button
+                            onClick={collapseAllHeadings}
+                            className="px-2 py-0.5 text-[10px] font-medium text-slate-500 hover:text-[var(--accent)] hover:bg-slate-100 rounded transition-colors cursor-pointer"
+                            title="折叠全部"
+                          >
+                            折叠全部
+                          </button>
+                        </div>
                       </div>
                     )}
+
+                    {/* Outline List Container */}
+                    <div className="flex-1 overflow-y-auto p-2 no-scrollbar space-y-1">
+                      {outline.length > 0 ? (
+                        outline.map((item, idx) => {
+                          if (!isItemVisibleInTree(idx)) return null;
+
+                          const itemHasChildren = hasSubHeadings(idx);
+                          const isCollapsed = !!collapsedHeadings[item.id];
+                          const isActive = activeHeadingId === item.id;
+
+                          return (
+                            <div
+                              key={item.id}
+                              id={`outline-item-${item.id}`}
+                              onClick={() => {
+                                if (item.pos !== undefined) {
+                                  scrollToHeading(item.pos);
+                                  setActiveHeadingId(item.id);
+                                }
+                              }}
+                              className={`w-full text-left py-1.5 px-2 rounded-lg text-xs transition-all cursor-pointer group flex items-center gap-1.5 select-none ${
+                                isActive
+                                  ? 'bg-blue-50 text-blue-600 font-bold border-l-2 border-blue-600 shadow-xs dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-400'
+                                  : 'text-[var(--text-primary)] hover:bg-white hover:shadow-xs border-l-2 border-transparent'
+                              }`}
+                              style={{ paddingLeft: `${(item.level - 1) * 12 + 8}px` }}
+                            >
+                              {/* Fold/Expand Toggle or Heading Tag */}
+                              {itemHasChildren ? (
+                                <button
+                                  onClick={(e) => toggleCollapseHeading(item.id, e)}
+                                  className="p-0.5 hover:bg-slate-200/70 dark:hover:bg-slate-800 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors shrink-0 cursor-pointer"
+                                  title={isCollapsed ? '展开子章节' : '折叠子章节'}
+                                >
+                                  {isCollapsed ? (
+                                    <ChevronRight size={13} className="text-slate-500" />
+                                  ) : (
+                                    <ChevronDown size={13} className="text-slate-500" />
+                                  )}
+                                </button>
+                              ) : (
+                                <span className={`text-[10px] font-mono shrink-0 ${isActive ? 'text-blue-500 font-bold' : 'text-slate-400 opacity-60'}`}>
+                                  H{item.level}
+                                </span>
+                              )}
+
+                              {/* Text */}
+                              <span className={`truncate flex-1 ${item.level === 1 ? 'font-semibold' : ''}`}>
+                                {item.text || '未命名标题'}
+                              </span>
+
+                              {/* Active Pulse Dot */}
+                              {isActive && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-600 dark:bg-blue-400 shrink-0 animate-pulse" />
+                              )}
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div className="h-full flex flex-col items-center justify-center text-[var(--text-secondary)] py-20 opacity-50">
+                          <List size={32} className="mb-2" />
+                          <p className="text-xs">暂无大纲内容</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <div className="p-2 space-y-4">
@@ -1314,16 +1804,23 @@ export default function App() {
                         </div>
                         <div className="flex gap-1">
                           <button 
+                            onClick={createNewFile}
+                            title="新建空白文档"
+                            className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-[var(--accent)] transition-colors"
+                          >
+                            <FilePlus size={14} />
+                          </button>
+                          <button 
                             onClick={openDirectory}
                             title="打开文件夹"
-                            className="p-1 hover:bg-slate-100 rounded text-slate-400"
+                            className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-[var(--accent)] transition-colors"
                           >
                             <Folder size={14} />
                           </button>
                           <button 
                             onClick={openAppFile}
                             title="打开外部文件"
-                            className="p-1 hover:bg-slate-100 rounded text-slate-400"
+                            className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-[var(--accent)] transition-colors"
                           >
                             <Upload size={14} />
                           </button>
@@ -1333,7 +1830,7 @@ export default function App() {
                         {/* Default current file */}
                         <button className="w-full flex items-center gap-3 p-2 rounded-lg bg-blue-50 text-[var(--accent)] text-sm font-medium">
                           <FileText size={16} />
-                          <span className="truncate">当前文档.md</span>
+                          <span className="truncate">{docName}</span>
                         </button>
                         
                         {/* Dynamically added resources */}
@@ -1393,46 +1890,97 @@ export default function App() {
         </AnimatePresence>
 
         <div 
-          className={`flex-1 overflow-y-auto no-scrollbar scroll-smooth transition-all duration-300 ${isPresentation ? "fixed inset-0 z-[1000] bg-[var(--bg-primary)] flex flex-col" : "bg-[var(--bg-secondary)]"}`} 
+          className={`flex-1 overflow-y-auto no-scrollbar scroll-smooth transition-all duration-300 ${isPresentation ? "fixed inset-0 z-[1000] bg-slate-900 flex flex-col overflow-hidden text-slate-100" : "bg-[var(--bg-secondary)]"}`} 
           id="editor-viewport"
         >
-          {isPresentation && (
-            <div className="h-16 flex justify-between items-center px-8 border-b border-[var(--border)] z-[1010] bg-[var(--bg-primary)]/90 backdrop-blur-md sticky top-0 shadow-sm shrink-0">
-               <div className="flex items-center gap-6">
-                 <div className="flex items-center gap-2">
-                   <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                   <span className="text-xs font-bold text-slate-800 uppercase tracking-widest tracking-tighter">FluxMark Live</span>
-                 </div>
-               </div>
-               <div className="flex items-center gap-4">
-                 <button 
-                   onClick={togglePresentation} 
-                   className="flex items-center gap-2 px-5 py-2.5 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition-all cursor-pointer text-sm shadow-lg shadow-red-200 active:scale-95"
-                 >
-                   <Maximize2 size={18} className="rotate-45" />
-                   退出放映
-                 </button>
-               </div>
-            </div>
-          )}
+          {isPresentation ? (
+            <div className="fixed inset-0 z-[1000] bg-slate-900 flex flex-col overflow-hidden text-slate-100">
+              {/* PPT Top Header Bar */}
+              <div className="h-16 flex justify-between items-center px-8 border-b border-slate-800 z-[1010] bg-slate-900/95 backdrop-blur-md sticky top-0 shadow-md shrink-0">
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+                    <span className="text-xs font-bold text-white uppercase tracking-wider">PPT 放映模式</span>
+                  </div>
+                </div>
 
-          <div 
-            className={`transition-all duration-300 relative mx-auto ${isPresentation ? "w-full max-w-none p-12 md:p-24 origin-top transform-gpu scale-[1.39] flex flex-col items-center" : "w-full max-w-4xl min-h-screen my-10 px-12 py-16 bg-[var(--bg-primary)] shadow-[0_20px_50px_rgba(0,0,0,0.05)] rounded-2xl border border-[var(--border)] group"}`}
-            style={isPresentation ? {} : { zoom: zoom }}
-          >
-            {!isPresentation && (
+                {/* Slide Navigation Controls */}
+                <div className="flex items-center gap-3">
+                  <button
+                    disabled={validSlideIndex === 0}
+                    onClick={() => setCurrentSlideIndex(prev => Math.max(0, prev - 1))}
+                    className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-blue-600 text-slate-200 hover:text-white transition-all disabled:opacity-30 disabled:hover:bg-slate-800 disabled:hover:text-slate-200 cursor-pointer flex items-center gap-1 font-medium text-xs border border-slate-700"
+                  >
+                    <ChevronLeft size={16} />
+                    上一页
+                  </button>
+
+                  <div className="px-4 py-1.5 bg-slate-800/90 rounded-xl border border-slate-700 text-xs font-mono font-bold text-blue-400 flex items-center gap-1.5">
+                    <span>{validSlideIndex + 1}</span>
+                    <span className="text-slate-500">/</span>
+                    <span>{slides.length}</span>
+                  </div>
+
+                  <button
+                    disabled={validSlideIndex >= slides.length - 1}
+                    onClick={() => setCurrentSlideIndex(prev => Math.min(slides.length - 1, prev + 1))}
+                    className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-blue-600 text-slate-200 hover:text-white transition-all disabled:opacity-30 disabled:hover:bg-slate-800 disabled:hover:text-slate-200 cursor-pointer flex items-center gap-1 font-medium text-xs border border-slate-700"
+                  >
+                    下一页
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button 
+                    onClick={togglePresentation} 
+                    className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition-all cursor-pointer text-xs shadow-lg shadow-red-500/20 active:scale-95"
+                  >
+                    <Maximize2 size={16} className="rotate-45" />
+                    退出放映
+                  </button>
+                </div>
+              </div>
+
+              {/* Slide Content Viewport (Near Full-Screen Display with Direct In-Place Editing) */}
+              <div className="flex-1 flex flex-col items-center justify-center p-2 sm:p-3 md:p-4 overflow-hidden relative">
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={validSlideIndex}
+                    initial={{ opacity: 0, scale: 0.98, x: 20 }}
+                    animate={{ opacity: 1, scale: 1, x: 0 }}
+                    exit={{ opacity: 0, scale: 0.98, x: -20 }}
+                    transition={{ duration: 0.2 }}
+                    className="w-full h-full max-w-none max-h-[94vh] bg-[var(--bg-primary)] text-[var(--text-primary)] rounded-2xl md:rounded-3xl p-6 md:p-12 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.5)] border border-slate-700/50 flex flex-col overflow-y-auto no-scrollbar relative select-text transition-all"
+                  >
+                    {/* Active Editable Slide Content - Directly editable without extra toolbars */}
+                    <div className={`flex-1 w-full overflow-y-auto no-scrollbar py-2 flex flex-col justify-center transition-all duration-300 ${getSlideDensityClass()}`}>
+                      <EditorContent editor={slideEditor} />
+                    </div>
+                  </motion.div>
+                </AnimatePresence>
+
+                {/* Bottom Keyboard Shortcut Hint */}
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-1.5 bg-slate-800/90 backdrop-blur-md rounded-full border border-slate-700/80 text-[11px] text-slate-400 pointer-events-none z-10 shadow-lg">
+                  <span>键盘方向键 <kbd className="px-1.5 py-0.5 bg-slate-700 rounded text-slate-200 font-mono text-[10px]">←</kbd> <kbd className="px-1.5 py-0.5 bg-slate-700 rounded text-slate-200 font-mono text-[10px]">→</kbd> 或 <kbd className="px-1.5 py-0.5 bg-slate-700 rounded text-slate-200 font-mono text-[10px]">PageUp/PageDown</kbd> 切换幻灯片页（可在放映中直接编辑文本）</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div 
+              className="transition-all duration-300 relative mx-auto w-full max-w-4xl min-h-screen my-10 px-12 py-16 bg-[var(--bg-primary)] shadow-[0_20px_50px_rgba(0,0,0,0.05)] rounded-2xl border border-[var(--border)] group"
+              style={{ zoom: zoom }}
+            >
               <div className="absolute top-6 right-8 flex items-center gap-4 opacity-0 group-hover:opacity-100 transition-opacity">
                 <span className="text-[10px] font-mono text-[var(--text-secondary)] uppercase tracking-widest bg-[var(--bg-secondary)] px-2 py-1 rounded border border-[var(--border)]">
                   {editor?.storage.characterCount.characters() || 0} 字符
                 </span>
               </div>
-            )}
-            
-            <div className={isPresentation ? "w-full max-w-4xl" : "w-full"}>
-              <EditorContent editor={editor} />
-            </div>
+              
+              <div className="w-full">
+                <EditorContent editor={editor} />
+              </div>
 
-            {!isPresentation && (
               <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-[var(--bg-primary)] p-2 rounded-2xl shadow-2xl border border-[var(--border)] z-30 opacity-0 group-hover:opacity-100 transition-opacity">
                 <QuickTool icon={<Heading1 size={14}/>} onClick={() => applyStyle('heading', 1)} title="一级标题" />
                 <QuickTool icon={<Heading2 size={14}/>} onClick={() => applyStyle('heading', 2)} title="二级标题" />
@@ -1456,23 +2004,56 @@ export default function App() {
                   input.click();
                 }} title="插入视频" />
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {isPresentation && (
              <>
+               {/* Laser Pointer Red Dot Indicator */}
+               {presentTool === 'laser' && laserPos.visible && (
+                 <div 
+                   className="fixed pointer-events-none z-[1008] -translate-x-1/2 -translate-y-1/2 flex items-center justify-center transition-opacity duration-150"
+                   style={{ left: `${laserPos.x}px`, top: `${laserPos.y}px` }}
+                 >
+                   {/* Outer Breathing Light Halo */}
+                   <div className="absolute w-8 h-8 rounded-full bg-red-500/30 laser-dot-breath" />
+                   {/* Middle High-Intensity Red Ring */}
+                   <div className="w-4 h-4 rounded-full bg-red-500 shadow-[0_0_12px_#ef4444,0_0_24px_#f43f5e] flex items-center justify-center">
+                     {/* Core Diode Hotspot */}
+                     <div className="w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_4px_#ffffff]" />
+                   </div>
+                 </div>
+               )}
+
                {/* Annotation Canvas (Middle) - Full screen pointer events */}
                <canvas
                  ref={canvasRef}
                  style={{ width: '100%', height: '100%' }}
-                 className={`fixed inset-0 z-[1005] ${presentTool === 'select' ? 'pointer-events-none' : 'cursor-crosshair'}`}
+                 className={`fixed inset-0 z-[1005] ${presentTool === 'select' ? 'pointer-events-none' : presentTool === 'laser' ? 'cursor-none' : 'cursor-crosshair'}`}
                  onMouseDown={startDrawing}
                  onMouseMove={draw}
                  onMouseUp={stopDrawing}
-                 onMouseLeave={stopDrawing}
+                 onMouseEnter={(e) => {
+                   if (presentTool === 'laser') {
+                     setLaserPos({ x: e.clientX, y: e.clientY, visible: true });
+                   }
+                 }}
+                 onMouseLeave={() => {
+                   if (presentTool === 'laser') {
+                     setLaserPos(prev => ({ ...prev, visible: false }));
+                   } else {
+                     stopDrawing();
+                   }
+                 }}
                  onTouchStart={startDrawing}
                  onTouchMove={draw}
-                 onTouchEnd={stopDrawing}
+                 onTouchEnd={() => {
+                   if (presentTool === 'laser') {
+                     setLaserPos(prev => ({ ...prev, visible: false }));
+                   } else {
+                     stopDrawing();
+                   }
+                 }}
                />
 
                {/* Draggable Timer Window (Top-most) */}
@@ -1481,35 +2062,59 @@ export default function App() {
                     drag
                     dragMomentum={false}
                     initial={{ x: 32, y: 32 }}
-                    className="fixed z-[1060] bg-white p-8 rounded-[40px] shadow-[0_30px_60px_rgba(0,0,0,0.15)] border border-slate-100 flex flex-col items-center gap-6 cursor-move min-w-[280px]"
+                    style={{ transform: `scale(${timerScale})`, transformOrigin: 'top left' }}
+                    className="fixed z-[1060] bg-white/95 backdrop-blur-md p-6 rounded-[32px] shadow-[0_25px_50px_rgba(0,0,0,0.25)] border border-slate-200 flex flex-col items-center gap-4 cursor-move min-w-[260px] select-none"
                   >
-                    <div className="flex flex-col items-center">
-                      <span className="text-sm font-black text-slate-300 uppercase tracking-[0.2em] leading-none mb-4">
-                        {isCountdownMode ? 'COUNTDOWN' : 'STOPWATCH'}
+                    <div className="flex items-center justify-between w-full border-b border-slate-100 pb-2">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                        {isCountdownMode ? '倒计时 COUNTDOWN' : '秒表 STOPWATCH'}
                       </span>
-                      <span className={`text-8xl font-mono font-bold tracking-tighter leading-none ${isCountdownMode && timerTime < 11 ? 'text-red-500 animate-pulse' : 'text-slate-900'}`}>
+                      {/* Scale / Zoom controls for Floating Timer */}
+                      <div className="flex items-center gap-1 bg-slate-100 rounded-lg px-1.5 py-0.5">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setTimerScale(s => Math.max(0.5, Number((s - 0.1).toFixed(1)))); }}
+                          title="缩小倒计时"
+                          className="p-1 hover:bg-white rounded text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                        >
+                          <ZoomOut size={14} />
+                        </button>
+                        <span className="text-[10px] font-mono font-bold text-slate-600 px-1">
+                          {Math.round(timerScale * 100)}%
+                        </span>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setTimerScale(s => Math.min(2.5, Number((s + 0.1).toFixed(1)))); }}
+                          title="放大倒计时"
+                          className="p-1 hover:bg-white rounded text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                        >
+                          <ZoomIn size={14} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col items-center py-2">
+                      <span className={`text-6xl font-mono font-bold tracking-tighter leading-none ${isCountdownMode && timerTime < 11 ? 'text-red-500 animate-pulse' : 'text-slate-900'}`}>
                         {formatTime(timerTime)}
                       </span>
                     </div>
 
-                    <div className="flex gap-4 w-full justify-center pt-6 border-t border-slate-50">
+                    <div className="flex gap-3 w-full justify-center pt-3 border-t border-slate-100">
                       <button 
                         onClick={(e) => { e.stopPropagation(); setIsTimerActive(!isTimerActive); }}
-                        className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${isTimerActive ? 'bg-slate-100 text-slate-400 hover:bg-slate-200' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-xl shadow-blue-200'}`}
+                        className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isTimerActive ? 'bg-slate-100 text-slate-400 hover:bg-slate-200' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-md'}`}
                       >
-                        {isTimerActive ? <div className="w-5 h-5 bg-current rounded-sm" /> : <div className="w-0 h-0 border-t-[10px] border-t-transparent border-b-[10px] border-b-transparent border-l-[16px] border-l-current ml-1" />}
+                        {isTimerActive ? <div className="w-4 h-4 bg-current rounded-xs" /> : <div className="w-0 h-0 border-t-[8px] border-t-transparent border-b-[8px] border-b-transparent border-l-[14px] border-l-current ml-0.5" />}
                       </button>
                       <button 
                         onClick={(e) => { e.stopPropagation(); stopTimer(); }}
-                        className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center hover:bg-red-100 transition-all"
+                        className="w-12 h-12 bg-red-50 text-red-500 rounded-full flex items-center justify-center hover:bg-red-100 transition-all"
                       >
-                        <RefreshCcw size={24} />
+                        <RefreshCcw size={20} />
                       </button>
                       <button 
                         onClick={() => setShowTimer(false)}
-                        className="w-16 h-16 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center hover:bg-slate-100 transition-all"
+                        className="w-12 h-12 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center hover:bg-slate-100 transition-all"
                       >
-                        <Maximize2 size={24} className="rotate-45" />
+                        <Maximize2 size={20} className="rotate-45" />
                       </button>
                     </div>
                   </motion.div>
@@ -1519,6 +2124,7 @@ export default function App() {
                <div className="pres-toolbar fixed right-8 top-1/2 -translate-y-1/2 flex flex-col gap-3 z-[1020]">
                 <div className="bg-[var(--bg-primary)]/90 backdrop-blur-xl p-2 rounded-2xl shadow-2xl border border-[var(--border)] flex flex-col gap-2">
                   <PresToolBtn active={presentTool === 'select'} onClick={() => setPresentTool('select')} icon={<MousePointer2 size={20} />} label="选择编辑" />
+                  <PresToolBtn active={presentTool === 'laser'} onClick={() => setPresentTool('laser')} icon={<Target size={20} className={presentTool === 'laser' ? "text-red-500" : ""} />} label="激光笔" />
                   <PresToolBtn active={presentTool === 'pen'} onClick={() => setPresentTool('pen')} icon={<Pencil size={20} />} label="画笔工具" />
                   <PresToolBtn active={presentTool === 'eraser'} onClick={() => setPresentTool('eraser')} icon={<Eraser size={20} />} label="橡皮擦" />
                   <div className="h-px bg-[var(--border)] mx-2 my-1" />
@@ -1800,36 +2406,62 @@ export default function App() {
         {showCountdownModal && (
           <motion.div 
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 z-[2000] flex items-center justify-center p-8 backdrop-blur-sm"
+            className="fixed inset-0 bg-black/50 z-[2000] flex items-center justify-center p-8 backdrop-blur-sm"
           >
             <motion.div 
               initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }}
-              className="bg-white rounded-3xl w-full max-w-sm p-8 shadow-2xl flex flex-col gap-6"
+              style={{ transform: `scale(${countdownModalScale})` }}
+              className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl flex flex-col gap-5 border border-slate-100 select-none transition-transform"
             >
-              <div className="text-center">
-                <div className="w-16 h-16 bg-blue-100 text-blue-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <Timer size={32} />
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl">
+                    <Timer size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-800">设置倒计时</h3>
+                    <p className="text-[11px] text-slate-400">选择放映倒计时时长</p>
+                  </div>
                 </div>
-                <h3 className="text-xl font-bold text-slate-800">设置倒计时</h3>
-                <p className="text-sm text-slate-500 mt-2">请选择放映过程中的倒计时时长</p>
+
+                {/* Resizing / Zoom In and Out for Countdown Settings Modal */}
+                <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
+                  <button
+                    onClick={() => setCountdownModalScale(s => Math.max(0.6, Number((s - 0.1).toFixed(1))))}
+                    title="缩小弹窗"
+                    className="p-1 hover:bg-white rounded-lg text-slate-600 transition-colors cursor-pointer"
+                  >
+                    <ZoomOut size={14} />
+                  </button>
+                  <span className="text-[10px] font-mono font-bold text-slate-600 px-1">
+                    {Math.round(countdownModalScale * 100)}%
+                  </span>
+                  <button
+                    onClick={() => setCountdownModalScale(s => Math.min(2.0, Number((s + 0.1).toFixed(1))))}
+                    title="放大弹窗"
+                    className="p-1 hover:bg-white rounded-lg text-slate-600 transition-colors cursor-pointer"
+                  >
+                    <ZoomIn size={14} />
+                  </button>
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2.5">
                 {[1, 3, 5, 10, 15, 30].map(mins => (
                   <button 
                     key={mins}
                     onClick={() => startCountdown(mins)}
-                    className="py-4 bg-slate-50 hover:bg-blue-50 hover:text-blue-600 border border-slate-200 hover:border-blue-200 rounded-2xl font-bold transition-all text-slate-600"
+                    className="py-3 bg-slate-50 hover:bg-blue-50 hover:text-blue-600 border border-slate-200 hover:border-blue-200 rounded-2xl font-bold transition-all text-slate-600 text-sm cursor-pointer"
                   >
                     {mins} 分钟
                   </button>
                 ))}
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex gap-2 pt-2 border-t border-slate-100">
                 <button 
                   onClick={() => setShowCountdownModal(false)}
-                  className="flex-1 py-3 text-slate-400 font-bold hover:text-slate-600 transition-colors"
+                  className="flex-1 py-2.5 text-slate-400 font-bold hover:text-slate-600 transition-colors text-xs cursor-pointer"
                 >
                   取消
                 </button>
@@ -1838,12 +2470,74 @@ export default function App() {
                    const val = prompt('输入自定义分钟数：');
                    if (val && !isNaN(Number(val))) startCountdown(Number(val));
                   }}
-                  className="flex-1 py-3 bg-[var(--accent)] text-white font-bold rounded-xl shadow-lg hover:opacity-90 transition-all"
+                  className="flex-1 py-2.5 bg-[var(--accent)] text-white font-bold rounded-xl shadow-md hover:opacity-90 transition-all text-xs cursor-pointer"
                 >
                   自定义
                 </button>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* --- Confirmation Modal --- */}
+      <AnimatePresence>
+        {confirmModal?.isOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs z-[2000] flex items-center justify-center p-4"
+            onClick={() => setConfirmModal(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-[var(--bg-primary)] border border-[var(--border)] rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4"
+            >
+              <div className="flex items-center gap-3 text-amber-500">
+                <AlertCircle size={24} />
+                <h3 className="font-bold text-base text-[var(--text-primary)]">{confirmModal.title}</h3>
+              </div>
+              <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                {confirmModal.message}
+              </p>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  onClick={() => setConfirmModal(null)}
+                  className="px-4 py-2 text-xs font-medium text-slate-500 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => {
+                    const cb = confirmModal.onConfirm;
+                    setConfirmModal(null);
+                    cb();
+                  }}
+                  className="px-4 py-2 text-xs font-medium bg-[var(--accent)] text-white rounded-lg shadow-sm hover:opacity-90 transition-all cursor-pointer"
+                >
+                  {confirmModal.confirmText || '确定'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* --- Toast Notification --- */}
+      <AnimatePresence>
+        {toastMsg && (
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.9 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 z-[2100] border border-slate-700"
+          >
+            <Check size={14} className="text-emerald-400" />
+            <span>{toastMsg}</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1891,6 +2585,7 @@ function ToolbarGroup({ label, children }: { label: string, children: React.Reac
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 5 }}
+            onClick={() => setIsOpen(false)}
             className="absolute top-full left-0 mt-2 w-48 bg-[var(--bg-primary)] border border-[var(--border)] rounded-xl shadow-xl overflow-hidden py-1 z-50 p-1"
           >
             {children}

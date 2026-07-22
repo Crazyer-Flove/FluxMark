@@ -36,7 +36,7 @@ export const BlockMath = Node.create({
   },
 
   renderHTML({ HTMLAttributes }) {
-    return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'block-math' }), 0];
+    return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'block-math' })];
   },
 
   addNodeView() {
