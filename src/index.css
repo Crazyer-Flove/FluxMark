@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 @import "katex/dist/katex.min.css";
 
@@ -6,14 +7,14 @@
 }
 
 @layer base {
-  :root {
+  :root, [data-theme='light'] {
     --bg-primary: #ffffff;
     --bg-secondary: #f8fafc;
     --text-primary: #1e293b;
     --text-secondary: #64748b;
     --accent: #1161f3;
     --border: #e2e8f0;
-    --toolbar-bg: rgba(255, 255, 255, 0.8);
+    --toolbar-bg: rgba(255, 255, 255, 0.85);
     --editor-font: "JetBrains Mono", monospace;
   }
 
@@ -22,19 +23,39 @@
     --bg-secondary: #1e293b;
     --text-primary: #f1f5f9;
     --text-secondary: #94a3b8;
-    --accent: #60a5fa;
+    --accent: #38bdf8;
     --border: #334155;
-    --toolbar-bg: rgba(15, 23, 42, 0.8);
+    --toolbar-bg: rgba(15, 23, 42, 0.85);
   }
 
   [data-theme='ocean'] {
-    --bg-primary: #0c4a6e;
-    --bg-secondary: #075985;
-    --text-primary: #f0f9ff;
-    --text-secondary: #bae6fd;
-    --accent: #38bdf8;
-    --border: #0369a1;
-    --toolbar-bg: rgba(12, 74, 110, 0.8);
+    --bg-primary: #0b192c;
+    --bg-secondary: #1e3e62;
+    --text-primary: #f0f8ff;
+    --text-secondary: #93c5fd;
+    --accent: #008dda;
+    --border: #1e293b;
+    --toolbar-bg: rgba(11, 25, 44, 0.85);
+  }
+
+  [data-theme='warm'] {
+    --bg-primary: #fdfbf7;
+    --bg-secondary: #f4efe6;
+    --text-primary: #3d2c1e;
+    --text-secondary: #785e4e;
+    --accent: #d97706;
+    --border: #e6decb;
+    --toolbar-bg: rgba(253, 251, 247, 0.85);
+  }
+
+  [data-theme='mint'] {
+    --bg-primary: #f2fbf7;
+    --bg-secondary: #e1f5eb;
+    --text-primary: #0f4c3a;
+    --text-secondary: #2d7a64;
+    --accent: #059669;
+    --border: #c2ebd9;
+    --toolbar-bg: rgba(242, 251, 247, 0.85);
   }
 
   body {
@@ -48,6 +69,12 @@
 .prose-custom, .ProseMirror {
   @apply max-w-none break-words outline-none;
   line-height: 1.8;
+  font-family: var(--editor-font-family, inherit);
+  transition: font-family 0.4s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s ease, background-color 0.3s ease;
+}
+
+.prose-custom *, .ProseMirror * {
+  transition: font-family 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .ProseMirror p.is-editor-empty:first-child::before {
@@ -71,7 +98,16 @@
 }
 
 .prose-custom mark, .ProseMirror mark { 
-  @apply bg-blue-100 text-blue-700 px-1 rounded-sm not-italic; 
+  @apply px-1 py-0.5 rounded-xs not-italic transition-colors;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* Fallback background when mark has no custom inline background-color style */
+.prose-custom mark:not([style*="background-color"]), 
+.ProseMirror mark:not([style*="background-color"]) {
+  background-color: #fef08a;
+  color: #854d0e;
 }
 
 .prose-custom pre, .ProseMirror pre {
@@ -93,11 +129,64 @@
 .hljs-tag { color: #116329; }
 .hljs-punctuation { color: #1b1f24; }
 
-.prose-custom blockquote, .ProseMirror blockquote { @apply border-l-4 border-[var(--accent)] pl-4 italic my-4 text-[var(--text-secondary)] bg-[var(--bg-secondary)]/50 py-1; }
+.prose-custom blockquote, .ProseMirror blockquote { @apply border-l-4 border-[var(--accent)] pl-4 italic my-4 text-[var(--text-secondary)] bg-[var(--bg-secondary)]/50 py-1 transition-all duration-300; }
+
+/* Blockquote Extension Fade-in Animation from Left Border */
+@keyframes blockquote-extend-left {
+  0% {
+    opacity: 0;
+    transform: translateX(-12px) scaleX(0.96);
+    clip-path: inset(0 100% 0 0);
+  }
+  60% {
+    clip-path: inset(0 0 0 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scaleX(1);
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+.animate-blockquote-extend {
+  animation: blockquote-extend-left 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity, clip-path;
+}
+
+/* Compact vs Loose Blockquote spacing refinements */
+.blockquote-compact blockquote p {
+  margin-top: 0.15rem !important;
+  margin-bottom: 0.15rem !important;
+}
+
+.blockquote-loose blockquote p {
+  margin-top: 0.4rem !important;
+  margin-bottom: 0.4rem !important;
+}
 .prose-custom table, .ProseMirror table { @apply w-full border-collapse mb-4; }
 .prose-custom th, .ProseMirror th, .prose-custom td, .ProseMirror td { @apply border border-[var(--border)] p-2 text-left; }
 .prose-custom th, .ProseMirror th { @apply bg-[var(--bg-secondary)] font-bold; }
-.prose-custom img, .ProseMirror img { @apply max-w-full h-auto rounded-lg mx-auto transition-all cursor-pointer border border-transparent hover:border-[var(--accent)]; }
+.prose-custom img, .ProseMirror img { 
+  @apply max-w-full h-auto rounded-lg mx-auto transition-all cursor-pointer border border-transparent hover:border-[var(--accent)]; 
+  content-visibility: auto;
+  contain-intrinsic-size: 300px 200px;
+}
+
+/* Image Lazy Loading Skeleton Placeholder */
+.prose-custom img[loading="lazy"], .ProseMirror img[loading="lazy"] {
+  background-color: var(--bg-secondary);
+  transition: opacity 0.3s ease-in-out, border-color 0.2s ease;
+}
+
+.prose-custom img.image-loading, .ProseMirror img.image-loading {
+  opacity: 0.6;
+  filter: blur(2px);
+}
+
+.prose-custom img.image-loaded, .ProseMirror img.image-loaded {
+  opacity: 1;
+  filter: blur(0);
+}
 .ProseMirror img.ProseMirror-selectednode {
   @apply outline-none ring-2 ring-[var(--accent)] ring-offset-2;
 }

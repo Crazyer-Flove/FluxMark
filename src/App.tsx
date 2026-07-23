@@ -6,7 +6,7 @@ import {
   Folder, FilePlus, ChevronDown, Superscript as SuperscriptIcon, Subscript as SubscriptIcon,
   Type, Palette, AlignCenter, AlignLeft, Trash2, Printer, MousePointer2, Pencil, Eraser, Timer, RefreshCcw, Target,
   FileCode, Share2, HelpCircle, FileDown, Upload, Bold, Italic, List, Heading1, Heading2, Quote, Highlighter, Video as VideoIcon,
-  AlertCircle, Check, Plus
+  AlertCircle, Check, Plus, BookOpen, Keyboard
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toCanvas } from 'html-to-image';
@@ -34,17 +34,150 @@ import TextAlign from '@tiptap/extension-text-align';
 import { common, createLowlight } from 'lowlight';
 
 import { CustomCodeBlock } from './extensions/CustomCodeBlock';
+import { CustomBlockquote } from './extensions/CustomBlockquote';
 import { InlineMath } from './extensions/InlineMath';
 import { BlockMath } from './extensions/BlockMath';
 import { Video } from './extensions/Video';
+import { HeadingSuggestion } from './extensions/HeadingSuggestion';
+import { EmojiSuggestion } from './extensions/EmojiSuggestion';
 import { AIChat } from './components/AIChat';
-import { Heart, Sparkles as SparklesIcon, Coffee } from 'lucide-react';
+import { DocumentOutlineStats } from './components/DocumentOutlineStats';
+import { HighlightPopover } from './components/HighlightPopover';
+import { Sparkles as SparklesIcon } from 'lucide-react';
 
 const lowlight = createLowlight(common);
 
 // --- Types ---
-type Theme = 'light' | 'dark' | 'ocean';
+type Theme = 'light' | 'dark' | 'ocean' | 'warm' | 'mint';
 type SidebarTab = 'outline' | 'resources';
+
+interface ThemeOption {
+  id: Theme;
+  name: string;
+  desc: string;
+  icon: React.ReactNode;
+  bgHex: string;
+  accentHex: string;
+}
+
+const THEME_OPTIONS: ThemeOption[] = [
+  {
+    id: 'light',
+    name: '默认简约',
+    desc: '经典亮白优雅布局，高对比度清爽界面',
+    icon: <Sun size={16} />,
+    bgHex: '#ffffff',
+    accentHex: '#1161f3',
+  },
+  {
+    id: 'dark',
+    name: '暗夜极客',
+    desc: '深色极客黑灰调，夜间灵感专注创作',
+    icon: <Moon size={16} />,
+    bgHex: '#0f172a',
+    accentHex: '#38bdf8',
+  },
+  {
+    id: 'ocean',
+    name: '深海幽蓝',
+    desc: '深邃沉静海洋蓝，平和高效编写体验',
+    icon: <Droplets size={16} />,
+    bgHex: '#0b192c',
+    accentHex: '#008dda',
+  },
+  {
+    id: 'warm',
+    name: '暖阳复古',
+    desc: '温润羊皮纸米黄，长时间阅读舒适护眼',
+    icon: <BookOpen size={16} />,
+    bgHex: '#fdfbf7',
+    accentHex: '#d97706',
+  },
+  {
+    id: 'mint',
+    name: '薄荷清新',
+    desc: '自然舒缓翡翠绿，缓解视疲劳清爽宜人',
+    icon: <SparklesIcon size={16} />,
+    bgHex: '#f2fbf7',
+    accentHex: '#059669',
+  },
+];
+
+export interface FontOption {
+  id: string;
+  name: string;
+  category: 'sans' | 'serif' | 'mono';
+  categoryLabel: string;
+  value: string;
+  sample: string;
+}
+
+export const FONT_OPTIONS: FontOption[] = [
+  {
+    id: 'default',
+    name: '系统默认 (Sans)',
+    category: 'sans',
+    categoryLabel: '无衬线',
+    value: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    sample: 'Aa 简约现代'
+  },
+  {
+    id: 'inter',
+    name: 'Inter (Modern Sans)',
+    category: 'sans',
+    categoryLabel: '无衬线',
+    value: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    sample: 'Aa Modern Sans'
+  },
+  {
+    id: 'times',
+    name: 'Times New Roman (Serif)',
+    category: 'serif',
+    categoryLabel: '衬线体',
+    value: '"Times New Roman", Times, "Songti SC", SimSun, serif',
+    sample: 'Aa Classic Serif'
+  },
+  {
+    id: 'georgia',
+    name: 'Georgia (Warm Serif)',
+    category: 'serif',
+    categoryLabel: '衬线体',
+    value: 'Georgia, "Times New Roman", "Songti SC", serif',
+    sample: 'Aa Elegant Serif'
+  },
+  {
+    id: 'jetbrains',
+    name: 'JetBrains Mono (Mono)',
+    category: 'mono',
+    categoryLabel: '等宽体',
+    value: '"JetBrains Mono", Consolas, Monaco, "Courier New", monospace',
+    sample: 'Aa Code Mono'
+  },
+  {
+    id: 'fira',
+    name: 'Fira Code (Code Mono)',
+    category: 'mono',
+    categoryLabel: '等宽体',
+    value: '"Fira Code", Consolas, Monaco, "Courier New", monospace',
+    sample: 'Aa Dev Monospace'
+  },
+  {
+    id: 'songti',
+    name: '经典宋体 (Songti)',
+    category: 'serif',
+    categoryLabel: '衬线体',
+    value: '"Songti SC", "STSong", "SimSun", serif',
+    sample: '字 典雅宋体'
+  },
+  {
+    id: 'kaiti',
+    name: '书香楷体 (Kaiti)',
+    category: 'serif',
+    categoryLabel: '衬线体',
+    value: '"Kaiti SC", "STKaiti", "KaiTi", serif',
+    sample: '字 润雅楷书'
+  },
+];
 
 interface SelectionState {
   top: number;
@@ -105,7 +238,7 @@ const transformMarkdownToMathHTML = (markdown: string) => {
       const escapedLatex = latex.replace(/"/g, '&quot;');
       return `<div data-type="block-math" data-latex="${escapedLatex}"></div>`;
     })
-    .replace(/\$([^\$]+?)\$/g, (match, latex) => {
+    .replace(/(?<!\$)\$([^\$]+?)\$(?!\$)/g, (match, latex) => {
       // Avoid matching price tags like $100 or standalone $
       if (/^\s|\s$/.test(latex) || latex.length > 200) return match;
       const escapedLatex = latex.replace(/"/g, '&quot;');
@@ -115,6 +248,9 @@ const transformMarkdownToMathHTML = (markdown: string) => {
   // Restore codes
   temp = temp.replace(/__CODE_BLOCK_(\d+)__/g, (_, i) => codes[Number(i)]);
   temp = temp.replace(/__CODE_INLINE_(\d+)__/g, (_, i) => codes[Number(i)]);
+
+  // Inject lazy loading & async decoding into raw HTML img tags
+  temp = temp.replace(/<img\s+(?![^>]*\bloading=)([^>]+)>/gi, '<img loading="lazy" decoding="async" $1>');
   
   return temp;
 };
@@ -122,6 +258,7 @@ const transformMarkdownToMathHTML = (markdown: string) => {
 // --- App Component ---
 export default function App() {
   const [theme, setTheme] = useState<Theme>('light');
+  const [fontFamily, setFontFamily] = useState<string>('default');
   const [zoom, setZoom] = useState<number>(1);
   const [isPresentation, setIsPresentation] = useState<boolean>(false);
   const [showSidebar, setShowSidebar] = useState<boolean>(true);
@@ -130,11 +267,15 @@ export default function App() {
   const [outline, setOutline] = useState<{ id: string, text: string, level: number, pos?: number }[]>([]);
   const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null);
   const [collapsedHeadings, setCollapsedHeadings] = useState<Record<string, boolean>>({});
+  const [selectedLevelFilter, setSelectedLevelFilter] = useState<number | null>(null);
   const [selection, setSelection] = useState<SelectionState>({ top: 0, left: 0, visible: false, text: '', range: null });
   const [showAIChat, setShowAIChat] = useState<boolean>(false);
-  const [showSupportModal, setShowSupportModal] = useState<boolean>(false);
   const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
+  const [helpTab, setHelpTab] = useState<'tutorial' | 'shortcuts'>('tutorial');
   const [cropImage, setCropImage] = useState<string | null>(null);
+  const [showHighlightPopover, setShowHighlightPopover] = useState<boolean>(false);
+  const [showSelectionHighlightPopover, setShowSelectionHighlightPopover] = useState<boolean>(false);
+  const [lastHighlightColor, setLastHighlightColor] = useState<string>('#fef08a');
   
   // Presentation Annotation & Slide State
   const [currentSlideIndex, setCurrentSlideIndex] = useState<number>(0);
@@ -153,6 +294,7 @@ export default function App() {
 
   // Custom UI notification and dialog states
   const [docName, setDocName] = useState<string>('当前文档.md');
+  const [currentFileHandle, setCurrentFileHandle] = useState<any | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
@@ -212,6 +354,7 @@ export default function App() {
     extensions: [
       StarterKit.configure({
         codeBlock: false,
+        blockquote: false,
       }),
       Markdown.configure({
         linkify: true,
@@ -225,6 +368,8 @@ export default function App() {
         allowBase64: true,
         HTMLAttributes: {
           class: 'resizable-image',
+          loading: 'lazy',
+          decoding: 'async',
         },
       }),
       TextStyle,
@@ -240,9 +385,12 @@ export default function App() {
       CustomCodeBlock.configure({
         lowlight,
       }),
+      CustomBlockquote,
       BlockMath,
       InlineMath,
       Video,
+      HeadingSuggestion,
+      EmojiSuggestion,
     ],
     content: (() => {
       const saved = localStorage.getItem(FLUXMARK_STORAGE_KEY);
@@ -284,6 +432,7 @@ export default function App() {
     extensions: [
       StarterKit.configure({
         codeBlock: false,
+        blockquote: false,
       }),
       Markdown.configure({
         linkify: true,
@@ -297,6 +446,8 @@ export default function App() {
         allowBase64: true,
         HTMLAttributes: {
           class: 'resizable-image',
+          loading: 'lazy',
+          decoding: 'async',
         },
       }),
       TextStyle,
@@ -312,9 +463,12 @@ export default function App() {
       CustomCodeBlock.configure({
         lowlight,
       }),
+      CustomBlockquote,
       BlockMath,
       InlineMath,
       Video,
+      HeadingSuggestion,
+      EmojiSuggestion,
     ],
     content: '',
     editorProps: {
@@ -438,6 +592,19 @@ export default function App() {
         e.preventDefault();
         setShowHelpModal(true);
       }
+      // Highlight: Ctrl+Shift+H / Cmd+Shift+H
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        if (editor) {
+          if (editor.isActive('highlight')) {
+            editor.chain().focus().unsetHighlight().run();
+            showToast('已取消文本高亮');
+          } else {
+            editor.chain().focus().setHighlight({ color: lastHighlightColor }).run();
+            showToast('已高亮选中文本');
+          }
+        }
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -513,6 +680,20 @@ export default function App() {
     return outline[index + 1].level > outline[index].level;
   };
 
+  const getSubHeadingsCount = (index: number) => {
+    if (index < 0 || index >= outline.length - 1) return 0;
+    const parentLevel = outline[index].level;
+    let count = 0;
+    for (let i = index + 1; i < outline.length; i++) {
+      if (outline[i].level > parentLevel) {
+        count++;
+      } else {
+        break;
+      }
+    }
+    return count;
+  };
+
   const isItemVisibleInTree = (index: number) => {
     const currentLevel = outline[index].level;
     let targetLevel = currentLevel;
@@ -586,10 +767,16 @@ export default function App() {
     }
   };
 
-  // 主题切换
+  // 主题与字体切换
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    const fontObj = FONT_OPTIONS.find(f => f.id === fontFamily);
+    const fontVal = fontObj?.value || '-apple-system, BlinkMacSystemFont, sans-serif';
+    document.documentElement.style.setProperty('--editor-font-family', fontVal);
+  }, [fontFamily]);
 
   // --- 处理函数 ---
 
@@ -645,7 +832,20 @@ export default function App() {
       case 'quote': editor.chain().focus().toggleBlockquote().run(); break;
       case 'align': editor.chain().focus().setTextAlign(value as string || 'left').run(); break;
       case 'color': editor.chain().focus().setColor(value as string).run(); break;
-      case 'highlight': editor.chain().focus().toggleHighlight().run(); break;
+      case 'highlight': 
+        if (value === 'unset') {
+          editor.chain().focus().unsetHighlight().run();
+        } else if (value) {
+          editor.chain().focus().setHighlight({ color: value as string }).run();
+          setLastHighlightColor(value as string);
+        } else {
+          if (editor.isActive('highlight')) {
+            editor.chain().focus().unsetHighlight().run();
+          } else {
+            editor.chain().focus().setHighlight({ color: lastHighlightColor }).run();
+          }
+        }
+        break;
       case 'superscript': editor.chain().focus().toggleSuperscript().run(); break;
       case 'subscript': editor.chain().focus().toggleSubscript().run(); break;
       case 'size': editor.chain().focus().setMark('textStyle', { fontSize: value }).run(); break;
@@ -665,6 +865,7 @@ export default function App() {
       editor.commands.setContent('<p></p>');
       editor.commands.focus();
       setDocName('新建空白文档.md');
+      setCurrentFileHandle(null);
       localStorage.setItem(FLUXMARK_STORAGE_KEY, '');
       showToast('已新建空白文档');
     };
@@ -690,6 +891,7 @@ export default function App() {
       editor.commands.setContent(sampleHtml);
       editor.commands.focus();
       setDocName('示例演示文档.md');
+      setCurrentFileHandle(null);
       localStorage.setItem(FLUXMARK_STORAGE_KEY, sampleHtml);
       showToast('已加载示例模版');
     };
@@ -780,6 +982,7 @@ export default function App() {
       const content = await file.text();
       editor?.commands.setContent(content);
       setDocName(handle.name);
+      setCurrentFileHandle(handle);
       showToast(`已打开文档 ${handle.name}`);
       
       // Add to resources if not already there
@@ -806,6 +1009,7 @@ export default function App() {
         if (re.target?.result) {
           editor.commands.setContent(re.target.result as string);
           setDocName(file.name);
+          setCurrentFileHandle(null);
           showToast(`已打开文档 ${file.name}`);
         }
       };
@@ -813,16 +1017,100 @@ export default function App() {
     }
   };
 
-  const saveFile = () => {
+  // 另存为：允许用户选择电脑上的任意路径保存文件
+  const saveAsFile = async () => {
     if (!editor) return;
     const markdownOutput = (editor.storage as any).markdown.getMarkdown();
-    const blob = new Blob([markdownOutput], { type: 'text/markdown;charset=utf-8' });
-    const fileName = docName.endsWith('.md') ? docName : `${docName}.md`;
-    saveAs(blob, fileName);
-    showToast(`已保存文件 ${fileName}`);
+    const defaultName = docName.endsWith('.md') ? docName : `${docName}.md`;
+
+    if ('showSaveFilePicker' in window) {
+      try {
+        // @ts-ignore - File System Access API
+        const handle = await window.showSaveFilePicker({
+          suggestedName: defaultName,
+          types: [
+            {
+              description: 'Markdown 文件 (*.md)',
+              accept: { 'text/markdown': ['.md'] },
+            },
+          ],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(markdownOutput);
+        await writable.close();
+
+        setCurrentFileHandle(handle);
+        setDocName(handle.name);
+
+        // 同步添加至资源列表
+        setResources(prev => {
+          if (prev.find(r => r.name === handle.name)) return prev;
+          return [...prev, { name: handle.name, type: 'file', handle }];
+        });
+
+        showToast(`文件已成功另存为 ${handle.name}`);
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          return; // 用户取消了另存为弹窗
+        }
+        console.warn('showSaveFilePicker 另存为受限或失败，降级下载:', err);
+        const blob = new Blob([markdownOutput], { type: 'text/markdown;charset=utf-8' });
+        saveAs(blob, defaultName);
+        showToast(`已保存文件 ${defaultName}`);
+      }
+    } else {
+      const blob = new Blob([markdownOutput], { type: 'text/markdown;charset=utf-8' });
+      saveAs(blob, defaultName);
+      showToast(`已保存文件 ${defaultName}`);
+    }
   };
 
+  // 保存：直接保存到打开的源文件中，若无源文件句柄则自动转为“另存为”
+  const saveFile = async () => {
+    if (!editor) return;
+
+    if (currentFileHandle && typeof currentFileHandle.createWritable === 'function') {
+      try {
+        const writable = await currentFileHandle.createWritable();
+        const markdownOutput = (editor.storage as any).markdown.getMarkdown();
+        await writable.write(markdownOutput);
+        await writable.close();
+        showToast(`已保存至源文件 ${docName}`);
+        return;
+      } catch (err: any) {
+        console.warn('写回源文件失败，准备弹出另存为:', err);
+      }
+    }
+
+    // 若当前没有可写的源文件句柄，直接自动转为另存为
+    saveAsFile();
+  };
+
+  // 快捷键监听：Ctrl+S (保存) & Ctrl+Shift+S (另存为)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          saveAsFile();
+        } else {
+          saveFile();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [editor, currentFileHandle, docName]);
+
   // 导出操作
+  const exportMarkdown = () => {
+    if (!editor) return;
+    const markdownOutput = (editor.storage as any).markdown?.getMarkdown() || '';
+    const blob = new Blob([markdownOutput], { type: 'text/markdown;charset=utf-8' });
+    const filename = docName.endsWith('.md') ? docName : `${docName}.md`;
+    saveAs(blob, filename);
+  };
+
   const exportPDF = async () => {
     if (!editor) return;
     const editorEl = editor.view.dom;
@@ -1592,29 +1880,183 @@ export default function App() {
           <nav className="flex items-center gap-1">
             <ToolbarGroup label="文件">
               <ToolbarItem icon={<FilePlus size={16} />} label="新建" onClick={createNewFile} />
-              <ToolbarItem icon={<Upload size={16} />} label="打开" onClick={() => fileInputRef.current?.click()} />
-              <ToolbarItem icon={<Save size={16} />} label="保存内容" onClick={saveFile} />
+              <ToolbarItem icon={<Upload size={16} />} label="打开" onClick={openAppFile} />
+              <ToolbarItem icon={<Save size={16} />} label="保存" onClick={saveFile} />
+              <ToolbarItem icon={<FileDown size={16} />} label="另存为..." onClick={saveAsFile} />
               <ToolbarItem icon={<RefreshCcw size={16} />} label="加载示例模版" onClick={loadSampleDoc} />
             </ToolbarGroup>
             
             <ToolbarGroup label="导出">
+              <ToolbarItem icon={<FileCode size={16} />} label="导出 Markdown" onClick={exportMarkdown} />
               <ToolbarItem icon={<Printer size={16} />} label="导出 PDF" onClick={exportPDF} />
               <ToolbarItem icon={<Download size={16} />} label="生成图片" onClick={exportImage} />
               <ToolbarItem icon={<FileText size={16} />} label="导出 HTML" onClick={exportHTML} />
               <ToolbarItem icon={<FileDown size={16} />} label="导出 Word" onClick={exportWord} />
             </ToolbarGroup>
 
-            <ToolbarGroup label="帮助">
+            <ToolbarGroup label="主题" alignRight>
+              <div className="w-72 sm:w-80 max-w-[calc(100vw-2rem)] p-2 space-y-3">
+                {/* 界面主题设置 */}
+                <div>
+                  <div className="px-2 py-1 text-[10px] font-bold text-[var(--text-secondary)] border-b border-[var(--border)] mb-1 flex items-center justify-between">
+                    <span>界面色彩主题</span>
+                    <span className="font-normal text-[9px] opacity-75">共 {THEME_OPTIONS.length} 款</span>
+                  </div>
+                  <div className="space-y-1">
+                    {THEME_OPTIONS.map((t) => (
+                      <button
+                        key={t.id}
+                        onClick={() => setTheme(t.id)}
+                        className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between transition-all cursor-pointer group ${
+                          theme === t.id 
+                            ? 'bg-blue-50 text-blue-600 font-bold dark:bg-blue-950/70 dark:text-blue-300' 
+                            : 'text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="p-1 rounded bg-[var(--bg-secondary)] border border-[var(--border)] text-[var(--text-secondary)] group-hover:text-[var(--accent)] shrink-0">
+                            {t.icon}
+                          </span>
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-medium text-xs truncate flex items-center gap-1.5">
+                              {t.name}
+                              {t.id === 'light' && (
+                                <span className="text-[9px] font-normal px-1 py-0.2 rounded bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                                  默认
+                                </span>
+                              )}
+                            </span>
+                            <span className="text-[9px] text-[var(--text-secondary)] font-normal truncate opacity-80">{t.desc}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 pl-2 shrink-0">
+                          <span 
+                            className="w-3 h-3 rounded-full border border-black/10 dark:border-white/20 shadow-xs" 
+                            style={{ backgroundColor: t.bgHex }} 
+                            title="背景 Preview"
+                          />
+                          <span 
+                            className="w-3 h-3 rounded-full border border-black/10 dark:border-white/20 shadow-xs" 
+                            style={{ backgroundColor: t.accentHex }} 
+                            title="主色 Preview"
+                          />
+                          {theme === t.id && (
+                            <Check size={13} className="text-[var(--accent)] ml-0.5" />
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 编辑器正文字体设置 */}
+                <div className="pt-2.5 border-t border-[var(--border)]">
+                  <div className="px-2 py-1 text-[10px] font-bold text-[var(--text-secondary)] mb-1.5 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <Type size={13} className="text-[var(--accent)]" />
+                      <span>正文与编辑器字体</span>
+                    </span>
+                    <span className="text-[9px] font-mono text-[var(--accent)] font-bold bg-blue-50 dark:bg-blue-950/80 px-1.5 py-0.5 rounded border border-blue-200/60 dark:border-blue-800/60">
+                      {FONT_OPTIONS.find(f => f.id === fontFamily)?.categoryLabel || '实时渲染'}
+                    </span>
+                  </div>
+
+                  {/* Font Select Dropdown */}
+                  <div className="relative px-0.5">
+                    <select
+                      value={fontFamily}
+                      onChange={(e) => {
+                        const fontId = e.target.value;
+                        setFontFamily(fontId);
+                        const found = FONT_OPTIONS.find(f => f.id === fontId);
+                        if (found) {
+                          showToast(`已实时切换编辑器字体：${found.name}`);
+                        }
+                      }}
+                      className="w-full bg-[var(--bg-secondary)] text-[var(--text-primary)] border border-[var(--border)] rounded-xl px-3 py-2 pr-8 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-[var(--accent)] cursor-pointer appearance-none transition-all shadow-2xs"
+                      style={{ fontFamily: FONT_OPTIONS.find(f => f.id === fontFamily)?.value || 'inherit' }}
+                    >
+                      <optgroup label="—— 无衬线字体 (Sans-Serif) ——">
+                        {FONT_OPTIONS.filter(f => f.category === 'sans').map(f => (
+                          <option key={f.id} value={f.id} style={{ fontFamily: f.value }}>
+                            {f.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="—— 衬线字体 (Serif) ——">
+                        {FONT_OPTIONS.filter(f => f.category === 'serif').map(f => (
+                          <option key={f.id} value={f.id} style={{ fontFamily: f.value }}>
+                            {f.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="—— 等宽字体 (Monospace) ——">
+                        {FONT_OPTIONS.filter(f => f.category === 'mono').map(f => (
+                          <option key={f.id} value={f.id} style={{ fontFamily: f.value }}>
+                            {f.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-[var(--text-secondary)]">
+                      <ChevronDown size={14} />
+                    </div>
+                  </div>
+
+                  {/* Font Sample Cards / Quick Switchers */}
+                  <div className="mt-2.5 grid grid-cols-2 gap-1.5 px-0.5">
+                    {FONT_OPTIONS.map((f) => {
+                      const isActive = fontFamily === f.id;
+                      return (
+                        <button
+                          key={f.id}
+                          onClick={() => {
+                            setFontFamily(f.id);
+                            showToast(`已实时切换编辑器字体：${f.name}`);
+                          }}
+                          className={`p-1.5 px-2 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-1.5 ${
+                            isActive
+                              ? 'border-blue-500 bg-blue-50/90 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 font-bold shadow-2xs'
+                              : 'border-[var(--border)] text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] hover:border-slate-300 dark:hover:border-slate-600'
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[11px] font-medium truncate leading-tight flex items-center gap-1">
+                              <span>{f.name}</span>
+                            </div>
+                            <div 
+                              className="text-[10px] opacity-75 truncate mt-0.5"
+                              style={{ fontFamily: f.value }}
+                            >
+                              {f.sample}
+                            </div>
+                          </div>
+                          {isActive && <Check size={12} className="text-blue-600 dark:text-blue-400 shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </ToolbarGroup>
+
+            <ToolbarGroup label="帮助" alignRight>
               <ToolbarItem icon={<HelpCircle size={16} />} label="快捷键说明" onClick={() => setShowHelpModal(true)} />
             </ToolbarGroup>
           </nav>
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="flex bg-[var(--bg-secondary)] p-1 rounded-lg border border-[var(--border)]">
-            <ThemeButton active={theme === 'light'} icon={<Sun size={18} />} onClick={() => setTheme('light')} title="浅色模式" />
-            <ThemeButton active={theme === 'dark'} icon={<Moon size={18} />} onClick={() => setTheme('dark')} title="深色模式" />
-            <ThemeButton active={theme === 'ocean'} icon={<Droplets size={18} />} onClick={() => setTheme('ocean')} title="海洋模式" />
+          <div className="flex bg-[var(--bg-secondary)] p-1 rounded-lg border border-[var(--border)] gap-0.5">
+            {THEME_OPTIONS.map((t) => (
+              <ThemeButton 
+                key={t.id} 
+                active={theme === t.id} 
+                icon={t.icon} 
+                onClick={() => setTheme(t.id)} 
+                title={`切换主题: ${t.name}`} 
+              />
+            ))}
           </div>
 
           <div className="h-6 w-px bg-[var(--border)]" />
@@ -1627,14 +2069,6 @@ export default function App() {
             >
               <SparklesIcon size={20} />
               {showAIChat && <span className="text-xs font-bold">AI 已开启</span>}
-            </button>
-            <button 
-              onClick={() => setShowSupportModal(true)}
-              className="p-2 hover:bg-pink-50 text-pink-500 rounded-lg transition-colors flex items-center gap-2 group"
-              title="打赏作者"
-            >
-              <Heart size={20} className="group-hover:fill-pink-500" />
-              <span className="text-xs font-bold">打赏</span>
             </button>
             <div className="h-6 w-px bg-[var(--border)] mx-1" />
             <button onClick={togglePresentation} title="放映模式" className="p-2 hover:bg-[var(--bg-secondary)] rounded-lg transition-colors cursor-pointer text-[var(--text-secondary)]">
@@ -1705,9 +2139,21 @@ export default function App() {
                     {/* Outline Toolbar */}
                     {outline.length > 0 && (
                       <div className="px-3 py-2 border-b border-[var(--border)] flex items-center justify-between bg-[var(--bg-primary)]/50 shrink-0 select-none">
-                        <span className="text-[11px] font-bold text-[var(--text-secondary)]">
-                          共 {outline.length} 个章节
-                        </span>
+                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-[var(--text-secondary)]">
+                          <span>共 {outline.length} 个章节</span>
+                          {selectedLevelFilter !== null && (
+                            <span className="text-[10px] bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 px-1.5 py-0.2 rounded font-mono font-medium flex items-center gap-1">
+                              仅看 H{selectedLevelFilter}
+                              <button 
+                                onClick={() => setSelectedLevelFilter(null)}
+                                className="hover:text-blue-900 dark:hover:text-white font-bold ml-0.5"
+                                title="清除筛选"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          )}
+                        </div>
                         <div className="flex items-center gap-1">
                           <button
                             onClick={expandAllHeadings}
@@ -1731,61 +2177,106 @@ export default function App() {
                     {/* Outline List Container */}
                     <div className="flex-1 overflow-y-auto p-2 no-scrollbar space-y-1">
                       {outline.length > 0 ? (
-                        outline.map((item, idx) => {
-                          if (!isItemVisibleInTree(idx)) return null;
+                        (() => {
+                          const filtered = outline.filter((item, idx) => {
+                            if (selectedLevelFilter !== null) {
+                              return item.level === selectedLevelFilter;
+                            }
+                            return isItemVisibleInTree(idx);
+                          });
 
-                          const itemHasChildren = hasSubHeadings(idx);
-                          const isCollapsed = !!collapsedHeadings[item.id];
-                          const isActive = activeHeadingId === item.id;
-
-                          return (
-                            <div
-                              key={item.id}
-                              id={`outline-item-${item.id}`}
-                              onClick={() => {
-                                if (item.pos !== undefined) {
-                                  scrollToHeading(item.pos);
-                                  setActiveHeadingId(item.id);
-                                }
-                              }}
-                              className={`w-full text-left py-1.5 px-2 rounded-lg text-xs transition-all cursor-pointer group flex items-center gap-1.5 select-none ${
-                                isActive
-                                  ? 'bg-blue-50 text-blue-600 font-bold border-l-2 border-blue-600 shadow-xs dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-400'
-                                  : 'text-[var(--text-primary)] hover:bg-white hover:shadow-xs border-l-2 border-transparent'
-                              }`}
-                              style={{ paddingLeft: `${(item.level - 1) * 12 + 8}px` }}
-                            >
-                              {/* Fold/Expand Toggle or Heading Tag */}
-                              {itemHasChildren ? (
-                                <button
-                                  onClick={(e) => toggleCollapseHeading(item.id, e)}
-                                  className="p-0.5 hover:bg-slate-200/70 dark:hover:bg-slate-800 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors shrink-0 cursor-pointer"
-                                  title={isCollapsed ? '展开子章节' : '折叠子章节'}
+                          if (filtered.length === 0) {
+                            return (
+                              <div className="py-12 flex flex-col items-center justify-center text-slate-400 text-xs">
+                                <p>未找到 H{selectedLevelFilter} 级别的标题</p>
+                                <button 
+                                  onClick={() => setSelectedLevelFilter(null)}
+                                  className="mt-2 text-blue-500 underline text-[11px] cursor-pointer"
                                 >
-                                  {isCollapsed ? (
-                                    <ChevronRight size={13} className="text-slate-500" />
-                                  ) : (
-                                    <ChevronDown size={13} className="text-slate-500" />
-                                  )}
+                                  查看全部标题
                                 </button>
-                              ) : (
-                                <span className={`text-[10px] font-mono shrink-0 ${isActive ? 'text-blue-500 font-bold' : 'text-slate-400 opacity-60'}`}>
+                              </div>
+                            );
+                          }
+
+                          return filtered.map((item) => {
+                            const originalIdx = outline.findIndex(o => o.id === item.id);
+                            const itemHasChildren = originalIdx >= 0 ? hasSubHeadings(originalIdx) : false;
+                            const isCollapsed = !!collapsedHeadings[item.id];
+                            const isActive = activeHeadingId === item.id;
+                            const subCount = (isCollapsed && originalIdx >= 0) ? getSubHeadingsCount(originalIdx) : 0;
+
+                            return (
+                              <div
+                                key={item.id}
+                                id={`outline-item-${item.id}`}
+                                onClick={() => {
+                                  if (item.pos !== undefined) {
+                                    scrollToHeading(item.pos);
+                                    setActiveHeadingId(item.id);
+                                  }
+                                }}
+                                onDoubleClick={(e) => {
+                                  if (itemHasChildren && selectedLevelFilter === null) {
+                                    toggleCollapseHeading(item.id, e);
+                                  }
+                                }}
+                                className={`w-full text-left py-1.5 px-2 rounded-lg text-xs transition-all cursor-pointer group flex items-center gap-1.5 select-none relative ${
+                                  isActive
+                                    ? 'bg-blue-50 text-blue-600 font-bold border-l-2 border-blue-600 shadow-xs dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-400'
+                                    : 'text-[var(--text-primary)] hover:bg-white dark:hover:bg-slate-800/80 hover:shadow-xs border-l-2 border-transparent'
+                                }`}
+                                style={{ paddingLeft: selectedLevelFilter !== null ? '8px' : `${(item.level - 1) * 14 + 8}px` }}
+                                title={itemHasChildren ? '点击箭头或双击可折叠/展开，单击可定位跳转' : '单击跳转'}
+                              >
+                                {/* Fold/Expand Toggle or Alignment Bullet */}
+                                {itemHasChildren && selectedLevelFilter === null ? (
+                                  <button
+                                    onClick={(e) => toggleCollapseHeading(item.id, e)}
+                                    className="p-0.5 hover:bg-slate-200/80 dark:hover:bg-slate-700 rounded text-slate-500 hover:text-slate-800 dark:hover:text-slate-100 transition-transform active:scale-90 shrink-0 cursor-pointer flex items-center justify-center"
+                                    title={isCollapsed ? '展开子章节' : '折叠子章节'}
+                                  >
+                                    {isCollapsed ? (
+                                      <ChevronRight size={13} className="text-slate-600 dark:text-slate-300" />
+                                    ) : (
+                                      <ChevronDown size={13} className="text-slate-600 dark:text-slate-300" />
+                                    )}
+                                  </button>
+                                ) : (
+                                  <span className="w-3.5 h-3.5 flex items-center justify-center text-[10px] font-mono text-slate-400/60 shrink-0">
+                                    •
+                                  </span>
+                                )}
+
+                                {/* Heading Level Badge */}
+                                <span className={`text-[9px] font-mono px-1 py-0.2 rounded border shrink-0 ${
+                                  isActive 
+                                    ? 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/60 dark:text-blue-300 dark:border-blue-800 font-bold' 
+                                    : 'bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
+                                }`}>
                                   H{item.level}
                                 </span>
-                              )}
 
-                              {/* Text */}
-                              <span className={`truncate flex-1 ${item.level === 1 ? 'font-semibold' : ''}`}>
-                                {item.text || '未命名标题'}
-                              </span>
+                                {/* Text */}
+                                <span className={`truncate flex-1 ${item.level === 1 ? 'font-semibold text-[12.5px]' : ''}`}>
+                                  {item.text || '未命名标题'}
+                                </span>
 
-                              {/* Active Pulse Dot */}
-                              {isActive && (
-                                <span className="w-1.5 h-1.5 rounded-full bg-blue-600 dark:bg-blue-400 shrink-0 animate-pulse" />
-                              )}
-                            </div>
-                          );
-                        })
+                                {/* Folded Subheadings Badge */}
+                                {isCollapsed && subCount > 0 && (
+                                  <span className="text-[9.5px] px-1.5 py-0.2 rounded-full bg-blue-100/90 text-blue-700 dark:bg-blue-900/80 dark:text-blue-300 font-mono font-bold shrink-0 shadow-2xs">
+                                    +{subCount}
+                                  </span>
+                                )}
+
+                                {/* Active Pulse Indicator */}
+                                {isActive && (
+                                  <span className="w-1.5 h-1.5 rounded-full bg-blue-600 dark:bg-blue-400 shrink-0 animate-pulse ml-0.5" />
+                                )}
+                              </div>
+                            );
+                          });
+                        })()
                       ) : (
                         <div className="h-full flex flex-col items-center justify-center text-[var(--text-secondary)] py-20 opacity-50">
                           <List size={32} className="mb-2" />
@@ -1793,6 +2284,17 @@ export default function App() {
                         </div>
                       )}
                     </div>
+
+                    {/* Document Heading Distribution Statistics Chart Component */}
+                    <DocumentOutlineStats 
+                      outline={outline}
+                      selectedLevelFilter={selectedLevelFilter}
+                      onSelectLevelFilter={setSelectedLevelFilter}
+                      onScrollToHeading={(pos, id) => {
+                        scrollToHeading(pos);
+                        setActiveHeadingId(id);
+                      }}
+                    />
                   </div>
                 ) : (
                   <div className="p-2 space-y-4">
@@ -1843,14 +2345,19 @@ export default function App() {
                                    let content = '';
                                    if (res.handle instanceof File) {
                                      content = await res.handle.text();
+                                     setCurrentFileHandle(null);
+                                     setDocName(res.name);
                                    } else if (res.handle.getFile) {
                                      const file = await res.handle.getFile();
                                      content = await file.text();
+                                     setCurrentFileHandle(res.handle);
+                                     setDocName(res.name);
                                    }
                                    editor?.commands.setContent(content);
+                                   showToast(`已切换至 ${res.name}`);
                                  } catch (err) {
                                    console.error('Failed to read file:', err);
-                                   alert('无法读取文件，请确保应用拥有访问权限。');
+                                   showToast('无法读取文件，请确保拥有访问权限');
                                  }
                                }
                              }}
@@ -1902,6 +2409,17 @@ export default function App() {
                     <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
                     <span className="text-xs font-bold text-white uppercase tracking-wider">PPT 放映模式</span>
                   </div>
+                  <button
+                    onClick={() => {
+                      clearCanvas();
+                      showToast('已一键清空屏幕标注');
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-red-500/20 text-slate-300 hover:text-red-400 border border-slate-700 transition-all text-xs font-medium cursor-pointer"
+                    title="一键清空屏幕上的画笔与标注"
+                  >
+                    <Trash2 size={15} className="text-red-400" />
+                    <span>一键清屏</span>
+                  </button>
                 </div>
 
                 {/* Slide Navigation Controls */}
@@ -1972,20 +2490,74 @@ export default function App() {
               style={{ zoom: zoom }}
             >
               <div className="absolute top-6 right-8 flex items-center gap-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                <span className="text-[10px] font-mono text-[var(--text-secondary)] uppercase tracking-widest bg-[var(--bg-secondary)] px-2 py-1 rounded border border-[var(--border)]">
-                  {editor?.storage.characterCount.characters() || 0} 字符
-                </span>
+                {(() => {
+                  const count = editor?.storage.characterCount?.characters() || 0;
+                  const isExceeded = count > 5000;
+                  return (
+                    <span className={`text-[10px] font-mono tracking-wider px-2.5 py-1 rounded-lg border transition-all flex items-center gap-1.5 ${
+                      isExceeded 
+                        ? 'bg-red-50 text-red-600 border-red-300 dark:bg-red-950/60 dark:text-red-400 dark:border-red-800 font-bold' 
+                        : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border)]'
+                    }`}>
+                      {isExceeded && <AlertCircle size={12} className="text-red-500 animate-pulse" />}
+                      <span>{count.toLocaleString()} 字符</span>
+                      {isExceeded && <span className="text-[9px] font-sans text-red-500 font-bold">(已超5000字上限)</span>}
+                    </span>
+                  );
+                })()}
               </div>
               
               <div className="w-full">
                 <EditorContent editor={editor} />
               </div>
 
-              <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-[var(--bg-primary)] p-2 rounded-2xl shadow-2xl border border-[var(--border)] z-30 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="fixed bottom-16 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-[var(--bg-primary)] p-2 rounded-2xl shadow-2xl border border-[var(--border)] z-30 opacity-0 group-hover:opacity-100 transition-opacity">
                 <QuickTool icon={<Heading1 size={14}/>} onClick={() => applyStyle('heading', 1)} title="一级标题" />
                 <QuickTool icon={<Heading2 size={14}/>} onClick={() => applyStyle('heading', 2)} title="二级标题" />
                 <QuickTool icon={<Bold size={14}/>} onClick={() => applyStyle('bold')} title="加粗" />
                 <QuickTool icon={<Italic size={14}/>} onClick={() => applyStyle('italic')} title="斜体" />
+                
+                {/* Text Highlighting Quick Tool */}
+                <div className="relative">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowHighlightPopover(!showHighlightPopover);
+                    }}
+                    className={`p-1.5 rounded-xl flex items-center gap-1 transition-all cursor-pointer ${
+                      showHighlightPopover || editor?.isActive('highlight')
+                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 font-bold border border-amber-300/80'
+                        : 'hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                    title="文本高亮调色盘 (Ctrl+Shift+H)"
+                  >
+                    <Highlighter size={14} />
+                    <span 
+                      className="w-2 h-2 rounded-full border border-black/10 shrink-0 shadow-2xs" 
+                      style={{ backgroundColor: lastHighlightColor }} 
+                    />
+                  </button>
+
+                  {showHighlightPopover && (
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 z-50">
+                      <HighlightPopover
+                        editor={editor}
+                        currentColor={lastHighlightColor}
+                        onApplyHighlight={(color) => {
+                          applyStyle('highlight', color);
+                          setLastHighlightColor(color);
+                          setShowHighlightPopover(false);
+                        }}
+                        onClearHighlight={() => {
+                          applyStyle('highlight', 'unset');
+                          setShowHighlightPopover(false);
+                        }}
+                        onClose={() => setShowHighlightPopover(false)}
+                      />
+                    </div>
+                  )}
+                </div>
+
                 <QuickTool icon={<List size={14}/>} onClick={() => applyStyle('bullet')} title="无序列表" />
                 <QuickTool icon={<Quote size={14}/>} onClick={() => applyStyle('quote')} title="引用" />
                 <div className="w-px h-4 bg-[var(--border)] mx-1" />
@@ -2144,7 +2716,15 @@ export default function App() {
                   <div className="h-px bg-[var(--border)] mx-2 my-1" />
                   <PresToolBtn active={showCountdownModal} onClick={() => setShowCountdownModal(true)} icon={<Timer size={20} />} label="设置倒计时" />
                   {!isCountdownMode && <PresToolBtn active={showTimer} onClick={() => setShowTimer(!showTimer)} icon={<Timer size={20} className="opacity-50" />} label="显示时长" />}
-                  <PresToolBtn active={false} onClick={clearCanvas} icon={<RefreshCcw size={20} />} label="清空标注" />
+                  <PresToolBtn 
+                    active={false} 
+                    onClick={() => {
+                      clearCanvas();
+                      showToast('已一键清空屏幕标注');
+                    }} 
+                    icon={<Trash2 size={20} className="text-red-500 hover:text-red-600" />} 
+                    label="一键清屏" 
+                  />
                 </div>
                </div>
              </>
@@ -2152,7 +2732,7 @@ export default function App() {
         </div>
 
         {/* 缩放浮动按钮 */}
-        <div className="fixed bottom-6 right-6 flex flex-col gap-2 z-20">
+        <div className="fixed bottom-16 right-6 flex flex-col gap-2 z-20">
           <button onClick={() => setZoom(z => Math.min(2, z + 0.1))} title="放大" className="p-3 bg-[var(--bg-primary)] border border-[var(--border)] rounded-full shadow-lg hover:text-[var(--accent)] hover:-translate-y-1 transition-all cursor-pointer"><ZoomIn size={20} /></button>
           <button onClick={() => setZoom(z => Math.max(0.2, z - 0.1))} title="缩小" className="p-3 bg-[var(--bg-primary)] border border-[var(--border)] rounded-full shadow-lg hover:text-[var(--accent)] hover:translate-y-1 transition-all cursor-pointer"><ZoomOut size={20} /></button>
         </div>
@@ -2163,6 +2743,85 @@ export default function App() {
           )}
         </AnimatePresence>
       </main>
+
+      {/* --- Bottom Real-Time Status Bar --- */}
+      {!isPresentation && (
+        <footer className="h-10 px-6 bg-[var(--bg-primary)] border-t border-[var(--border)] flex items-center justify-between z-40 text-xs shrink-0 select-none shadow-xs">
+          {/* Left Metadata Status */}
+          <div className="flex items-center gap-4 text-[var(--text-secondary)]">
+            <div className="flex items-center gap-1.5" title="文档更改已本地实时保存">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="font-medium text-[11px]">已实时保存</span>
+            </div>
+            <span className="text-[var(--border)]">|</span>
+            <div className="flex items-center gap-1 text-[11px]">
+              <span>预计阅读时间:</span>
+              <span className="font-mono font-bold text-[var(--text-primary)]">
+                {Math.max(1, Math.ceil((editor?.storage.characterCount?.words() || 0) / 250))} 分钟
+              </span>
+            </div>
+            <span className="text-[var(--border)] hidden sm:inline">|</span>
+            <div className="hidden sm:flex items-center gap-1 text-[11px]">
+              <span>画布比例:</span>
+              <span className="font-mono font-bold">{Math.round(zoom * 100)}%</span>
+            </div>
+          </div>
+
+          {/* Right Real-time Character & Word Counter Component with 5000 Threshold Warning */}
+          <div className="flex items-center gap-3">
+            {(() => {
+              const characters = editor?.storage.characterCount?.characters() || 0;
+              const words = editor?.storage.characterCount?.words() || 0;
+              const THRESHOLD = 5000;
+              const isExceeded = characters > THRESHOLD;
+              const percentage = Math.min(100, Math.round((characters / THRESHOLD) * 100));
+
+              return (
+                <div 
+                  className={`flex items-center gap-2.5 px-3 py-1 rounded-xl border text-xs transition-all font-mono ${
+                    isExceeded 
+                      ? 'bg-red-50 text-red-600 border-red-300 dark:bg-red-950/50 dark:text-red-400 dark:border-red-800 font-bold shadow-sm' 
+                      : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border)]'
+                  }`}
+                  title={isExceeded ? `字符数（${characters.toLocaleString()}）已超过 5,000 字建议上限！` : `当前写作用量：${percentage}%`}
+                >
+                  {isExceeded ? (
+                    <AlertCircle size={14} className="text-red-500 shrink-0 animate-pulse" />
+                  ) : (
+                    <Type size={14} className="text-slate-400 shrink-0" />
+                  )}
+
+                  <div className="flex items-center gap-1.5">
+                    <span className={isExceeded ? 'text-red-600 dark:text-red-400 font-extrabold' : 'text-[var(--text-primary)] font-bold'}>
+                      {characters.toLocaleString()}
+                    </span>
+                    <span className="text-[10px] opacity-60 font-sans">/ 5,000 字符</span>
+                    <span className="opacity-30">|</span>
+                    <span className="text-[11px]">
+                      {words.toLocaleString()} <span className="text-[10px] opacity-60 font-sans">词</span>
+                    </span>
+                  </div>
+
+                  {/* Progress Indicator */}
+                  <div className="w-12 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden shrink-0 ml-1 hidden sm:block">
+                    <div 
+                      className={`h-full transition-all duration-300 ${isExceeded ? 'bg-red-500 animate-pulse' : percentage > 80 ? 'bg-amber-500' : 'bg-blue-500'}`}
+                      style={{ width: `${percentage}%` }}
+                    />
+                  </div>
+
+                  {/* Red Alert Pill */}
+                  {isExceeded && (
+                    <span className="text-[10px] font-sans bg-red-100 dark:bg-red-900/70 text-red-600 dark:text-red-300 px-1.5 py-0.5 rounded-md font-bold ml-0.5">
+                      字数超出上限
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        </footer>
+      )}
 
       {/* --- Floating Selection Toolbar --- */}
       <AnimatePresence>
@@ -2179,7 +2838,40 @@ export default function App() {
                    <FloatingBtn onClick={() => applyStyle('heading', 2)} icon={<Heading2 size={16}/>} label="二阶标题" />
                    <FloatingBtn onClick={() => applyStyle('bold')} icon={<Bold size={16}/>} label="加粗" />
                    <FloatingBtn onClick={() => applyStyle('italic')} icon={<Italic size={16}/>} label="斜体" />
-                   <FloatingBtn onClick={() => applyStyle('highlight')} icon={<Highlighter size={16}/>} label="高亮" />
+                   
+                   <div className="relative">
+                     <FloatingBtn 
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         setShowSelectionHighlightPopover(!showSelectionHighlightPopover);
+                       }} 
+                       icon={
+                         <div className="flex items-center gap-1">
+                           <Highlighter size={15} />
+                           <span className="w-2 h-2 rounded-full border border-gray-300 shrink-0 shadow-2xs" style={{ backgroundColor: lastHighlightColor }} />
+                         </div>
+                       } 
+                       label="高亮调色" 
+                     />
+                     {showSelectionHighlightPopover && (
+                       <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50">
+                         <HighlightPopover
+                           editor={editor}
+                           currentColor={lastHighlightColor}
+                           onApplyHighlight={(color) => {
+                             applyStyle('highlight', color);
+                             setLastHighlightColor(color);
+                             setShowSelectionHighlightPopover(false);
+                           }}
+                           onClearHighlight={() => {
+                             applyStyle('highlight', 'unset');
+                             setShowSelectionHighlightPopover(false);
+                           }}
+                           onClose={() => setShowSelectionHighlightPopover(false)}
+                         />
+                       </div>
+                     )}
+                   </div>
                    <FloatingBtn onClick={() => {
                      if (editor) {
                        const { from, to } = editor.state.selection;
@@ -2279,14 +2971,15 @@ export default function App() {
               exit={{ scale: 0.9, y: 20 }}
               className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden flex flex-col shadow-2xl border border-slate-200"
             >
+              {/* Modal Header */}
               <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-blue-100 text-[var(--accent)] rounded-xl">
                     <HelpCircle size={24} />
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-slate-800">快捷键说明</h3>
-                    <p className="text-xs text-slate-500">提高协作效率，掌握 FluxMark 核心操作</p>
+                    <h3 className="text-xl font-bold text-slate-800">帮助与指南</h3>
+                    <p className="text-xs text-slate-500">掌握 FluxMark 核心功能与高效创作技巧</p>
                   </div>
                 </div>
                 <button onClick={() => setShowHelpModal(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
@@ -2294,42 +2987,142 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="p-8 grid grid-cols-2 gap-8 max-h-[60vh] overflow-y-auto no-scrollbar">
-                <div>
-                  <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                    <Type size={14} /> 文本编辑
-                  </h4>
-                  <div className="space-y-3">
-                    <ShortcutRow label="加粗" keys={['Ctrl', 'B']} />
-                    <ShortcutRow label="斜体" keys={['Ctrl', 'I']} />
-                    <ShortcutRow label="高亮" keys={['Ctrl', 'Shift', 'H']} />
-                    <ShortcutRow label="一级标题" keys={['Ctrl', 'Alt', '1']} />
-                    <ShortcutRow label="二级标题" keys={['Ctrl', 'Alt', '2']} />
-                    <ShortcutRow label="无序列表" keys={['Ctrl', 'Shift', '8']} />
-                    <ShortcutRow label="有序列表" keys={['Ctrl', 'Shift', '7']} />
-                    <ShortcutRow label="块引用" keys={['Ctrl', 'Shift', 'B']} />
-                    <ShortcutRow label="内联代码" keys={['Ctrl', 'E']} />
-                    <ShortcutRow label="代码块" keys={['Ctrl', 'Alt', 'C']} />
-                  </div>
-                </div>
+              {/* Sub-Header Navigation Tabs */}
+              <div className="px-8 pt-4 pb-2 bg-slate-50/30 border-b border-slate-100 flex gap-2">
+                <button
+                  onClick={() => setHelpTab('tutorial')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    helpTab === 'tutorial'
+                      ? 'bg-[var(--accent)] text-white shadow-md shadow-blue-200'
+                      : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                  }`}
+                >
+                  <BookOpen size={15} />
+                  新手教程
+                </button>
+                <button
+                  onClick={() => setHelpTab('shortcuts')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    helpTab === 'shortcuts'
+                      ? 'bg-[var(--accent)] text-white shadow-md shadow-blue-200'
+                      : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                  }`}
+                >
+                  <Keyboard size={15} />
+                  快捷键说明
+                </button>
+              </div>
 
-                <div>
-                  <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                    <Layout size={14} /> 系统功能
-                  </h4>
-                  <div className="space-y-3">
-                    <ShortcutRow label="新建文档" keys={['Ctrl', 'Alt', 'N']} />
-                    <ShortcutRow label="撤销操作" keys={['Ctrl', 'Z']} />
-                    <ShortcutRow label="重做操作" keys={['Ctrl', 'Shift', 'Z']} />
-                    <ShortcutRow label="帮助中心" keys={['Ctrl', '/']} />
-                    <ShortcutRow label="放映模式" keys={['F11']} />
-                    <div className="pt-4 mt-4 border-t border-slate-100">
-                      <p className="text-xs text-slate-500 leading-relaxed">
-                        <span className="font-bold text-[var(--accent)]">提示：</span>选中预览区文本可快速触发快捷样式工具栏。支持直接拖拽图片或视频到编辑器中进行排版。
-                      </p>
+              {/* Modal Body */}
+              <div className="p-8 max-h-[60vh] overflow-y-auto no-scrollbar">
+                {helpTab === 'tutorial' ? (
+                  <div className="space-y-6 text-slate-700">
+                    {/* Welcome Banner */}
+                    <div className="p-4 rounded-2xl bg-blue-50/80 border border-blue-100 flex items-start gap-3">
+                      <div className="p-2 bg-blue-500 text-white rounded-lg shrink-0 mt-0.5">
+                        <BookOpen size={18} />
+                      </div>
+                      <div className="text-xs leading-relaxed">
+                        <span className="font-bold text-blue-900 block text-sm mb-1">欢迎使用 FluxMark 智能 Markdown 编辑器</span>
+                        FluxMark 是一款兼具沉浸创作、AI 辅助写作、实时可视化与演示放映功能的现代编辑器。下文将帮您迅速熟悉核心操作！
+                      </div>
+                    </div>
+
+                    {/* Tutorial Cards Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Step 1 */}
+                      <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-white hover:border-blue-200 hover:shadow-sm transition-all space-y-2">
+                        <div className="flex items-center gap-2 text-blue-600 font-bold text-sm">
+                          <Type size={16} />
+                          <span>1. 文本排版与格式化</span>
+                        </div>
+                        <p className="text-xs text-slate-500 leading-relaxed">
+                          直接输入标准的 Markdown 语法（如 <code className="bg-slate-200 px-1 py-0.5 rounded text-slate-700"># 标题</code> 或 <code className="bg-slate-200 px-1 py-0.5 rounded text-slate-700">- 列表</code>），或在编辑区中<b>选中文本</b>，即可唤起快捷排版工具栏一键加粗、插入高亮、代码块或公式。
+                        </p>
+                      </div>
+
+                      {/* Step 2 */}
+                      <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-white hover:border-blue-200 hover:shadow-sm transition-all space-y-2">
+                        <div className="flex items-center gap-2 text-indigo-600 font-bold text-sm">
+                          <ImageIcon size={16} />
+                          <span>2. 多媒体与公式嵌入</span>
+                        </div>
+                        <p className="text-xs text-slate-500 leading-relaxed">
+                          您可以将图片或视频<b>拖拽/粘贴</b>到编辑窗口。选中图片可在线裁剪；工具栏还支持插入 KateX 数学公式 <code className="bg-slate-200 px-1 py-0.5 rounded text-slate-700">$E=mc^2$</code>。
+                        </p>
+                      </div>
+
+                      {/* Step 3 */}
+                      <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-white hover:border-blue-200 hover:shadow-sm transition-all space-y-2">
+                        <div className="flex items-center gap-2 text-purple-600 font-bold text-sm">
+                          <SparklesIcon size={16} />
+                          <span>3. AI 智能对话与续写</span>
+                        </div>
+                        <p className="text-xs text-slate-500 leading-relaxed">
+                          点击右上角的 <b>AI 按钮</b>，可以对选中文本进行润色、总结、翻译或生成新段落。您也可以像与助手聊天一样随时对文章提问。
+                        </p>
+                      </div>
+
+                      {/* Step 4 */}
+                      <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-white hover:border-blue-200 hover:shadow-sm transition-all space-y-2">
+                        <div className="flex items-center gap-2 text-emerald-600 font-bold text-sm">
+                          <Monitor size={16} />
+                          <span>4. 全屏放映与标注</span>
+                        </div>
+                        <p className="text-xs text-slate-500 leading-relaxed">
+                          点击顶部<b>放映图标</b>将文档转换为全屏幻灯片展示！悬浮工具栏提供画笔圈画、橡皮擦、激光笔效果以及会议倒计时功能。
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Pro-Tips footer */}
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
+                      <span>💡 小提示：按 <kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded font-mono text-[10px] text-slate-600">Ctrl + /</kbd> 也可快速随时打开本帮助中心。</span>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-8">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                        <Type size={14} /> 文本编辑
+                      </h4>
+                      <div className="space-y-3">
+                        <ShortcutRow label="加粗" keys={['Ctrl', 'B']} />
+                        <ShortcutRow label="斜体" keys={['Ctrl', 'I']} />
+                        <ShortcutRow label="高亮" keys={['Ctrl', 'Shift', 'H']} />
+                        <ShortcutRow label="一级标题" keys={['Ctrl', 'Alt', '1']} />
+                        <ShortcutRow label="二级标题" keys={['Ctrl', 'Alt', '2']} />
+                        <ShortcutRow label="无序列表" keys={['Ctrl', 'Shift', '8']} />
+                        <ShortcutRow label="有序列表" keys={['Ctrl', 'Shift', '7']} />
+                        <ShortcutRow label="块引用" keys={['Ctrl', 'Shift', 'B']} />
+                        <ShortcutRow label="内联代码" keys={['Ctrl', 'E']} />
+                        <ShortcutRow label="代码块" keys={['Ctrl', 'Alt', 'C']} />
+                        <ShortcutRow label="标题补全" keys={['#']} />
+                        <ShortcutRow label="Emoji 表情" keys={[':']} />
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                        <Layout size={14} /> 系统功能
+                      </h4>
+                      <div className="space-y-3">
+                        <ShortcutRow label="保存 (覆盖源文件)" keys={['Ctrl', 'S']} />
+                        <ShortcutRow label="另存为 (选择路径)" keys={['Ctrl', 'Shift', 'S']} />
+                        <ShortcutRow label="新建文档" keys={['Ctrl', 'Alt', 'N']} />
+                        <ShortcutRow label="撤销操作" keys={['Ctrl', 'Z']} />
+                        <ShortcutRow label="重做操作" keys={['Ctrl', 'Shift', 'Z']} />
+                        <ShortcutRow label="帮助中心" keys={['Ctrl', '/']} />
+                        <ShortcutRow label="放映模式" keys={['F11']} />
+                        <div className="pt-4 mt-4 border-t border-slate-100">
+                          <p className="text-xs text-slate-500 leading-relaxed">
+                            <span className="font-bold text-[var(--accent)]">提示：</span>选中预览区文本可快速触发快捷样式工具栏。支持直接拖拽图片或视频到编辑器中进行排版。
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end">
@@ -2339,62 +3132,6 @@ export default function App() {
                 >
                   我知道了
                 </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* --- Support Modal --- */}
-      <AnimatePresence>
-        {showSupportModal && (
-          <motion.div 
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-8 backdrop-blur-sm"
-          >
-            <motion.div 
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.9, y: 20 }}
-              className="bg-white rounded-3xl w-full max-w-md overflow-hidden flex flex-col shadow-2xl border border-slate-200"
-            >
-              <div className="p-6 text-center space-y-4">
-                <div className="w-16 h-16 bg-pink-100 text-pink-500 rounded-2xl flex items-center justify-center mx-auto mb-2">
-                  <Coffee size={32} />
-                </div>
-                <h3 className="text-xl font-bold text-slate-800">打赏作者</h3>
-                <p className="text-sm text-slate-500">如果您觉得 FluxMark 对您有帮助，欢迎请作者喝杯咖啡！您的支持是我持续更新的动力。</p>
-                
-                <div className="p-4 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 relative group min-h-[300px] flex items-center justify-center">
-                  <img 
-                    src="/support_qr.jpg" 
-                    alt="微信收款码"
-                    onError={(e) => {
-                      // Fallback to a placeholder if the local file is not found
-                      e.currentTarget.src = "https://files.catbox.moe/u904is.jpg"; 
-                    }}
-                    className="w-full h-auto rounded-xl shadow-lg"
-                  />
-                  <div className="absolute inset-0 bg-white/10 group-hover:bg-transparent transition-colors pointer-events-none" />
-                </div>
-
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => setShowSupportModal(false)}
-                    className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl transition-all"
-                  >
-                    再想想
-                  </button>
-                  <button 
-                    onClick={() => setShowSupportModal(false)}
-                    className="flex-1 py-3 bg-[var(--accent)] hover:bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-200 transition-all active:scale-95"
-                  >
-                    已打赏并关闭
-                  </button>
-                </div>
-              </div>
-              <div className="bg-slate-50 py-3 px-6 text-[10px] text-slate-400 text-center border-t border-slate-100 uppercase tracking-widest font-mono">
-                Powered by WeChat Pay
               </div>
             </motion.div>
           </motion.div>
@@ -2558,7 +3295,7 @@ function QuickTool({ icon, onClick, title }: { icon: React.ReactNode, onClick: (
   );
 }
 
-function ToolbarGroup({ label, children }: { label: string, children: React.ReactNode }) {
+function ToolbarGroup({ label, children, alignRight = false }: { label: string, children: React.ReactNode, alignRight?: boolean }) {
   const [isOpen, setIsOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -2585,8 +3322,9 @@ function ToolbarGroup({ label, children }: { label: string, children: React.Reac
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 5 }}
-            onClick={() => setIsOpen(false)}
-            className="absolute top-full left-0 mt-2 w-48 bg-[var(--bg-primary)] border border-[var(--border)] rounded-xl shadow-xl overflow-hidden py-1 z-50 p-1"
+            className={`absolute top-full mt-2 bg-[var(--bg-primary)] border border-[var(--border)] rounded-2xl shadow-2xl overflow-y-auto max-h-[85vh] py-1 z-50 p-1 font-sans ${
+              alignRight ? 'right-0 left-auto' : 'left-0'
+            }`}
           >
             {children}
           </motion.div>
@@ -2635,7 +3373,7 @@ function ShortcutRow({ label, keys }: { label: string, keys: string[] }) {
   );
 }
 
-function FloatingBtn({ icon, onClick, label }: { icon: React.ReactNode, onClick: () => void, label: string }) {
+function FloatingBtn({ icon, onClick, label }: { icon: React.ReactNode, onClick: (e?: any) => void, label: string }) {
   return (
     <button 
       onClick={onClick}

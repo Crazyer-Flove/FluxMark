@@ -23,13 +23,13 @@ export const BlockMath = Node.create({
       {
         tag: 'div[data-type="block-math"]',
         getAttrs: (element: HTMLElement) => ({
-          latex: element.getAttribute('data-latex'),
+          latex: element.getAttribute('data-latex') || '',
         }),
       },
       {
         tag: 'math-block',
         getAttrs: (element: HTMLElement) => ({
-          latex: element.textContent,
+          latex: element.textContent || '',
         }),
       },
     ];
@@ -45,20 +45,44 @@ export const BlockMath = Node.create({
 
   addInputRules() {
     return [
+      // Rule 1: Typing $$latex$$
       new InputRule({
-        find: /(?:^|\s)\$\$([^\s\$][^\$]*[^\s\$]?)\$\$$/,
+        find: /(?:^|[^$])\$\$([^$]+)\$\$$/,
+        handler: ({ state, range, match }) => {
+          const { tr } = state;
+          const latex = match[1] ? match[1].trim() : '';
+
+          const offset = match[0].indexOf('$');
+          const start = range.from + offset;
+          const end = range.to;
+
+          tr.replaceWith(
+            start,
+            end,
+            this.type.create({
+              latex,
+              displayMode: true,
+            })
+          );
+        },
+      }),
+      // Rule 2: Typing $$ followed by a space or trailing space at line start or after space
+      new InputRule({
+        find: /(?:^|\s)\$\$\s$/,
         handler: ({ state, range, match }) => {
           const { tr } = state;
           const offset = match[0].indexOf('$');
           const start = range.from + offset;
           const end = range.to;
 
-          if (match[1]) {
-            tr.replaceWith(start, end, this.type.create({
-              latex: match[1],
+          tr.replaceWith(
+            start,
+            end,
+            this.type.create({
+              latex: '',
               displayMode: true,
-            }));
-          }
+            })
+          );
         },
       }),
     ];
@@ -70,17 +94,22 @@ export const BlockMath = Node.create({
         find: /\$\$([\s\S]+?)\$\$/g,
         handler: ({ state, range, match }) => {
           const { tr } = state;
+          const latex = match[1] ? match[1].trim() : '';
+
           const start = range.from;
           const end = range.to;
 
-          if (match[1]) {
-            tr.replaceWith(start, end, this.type.create({
-              latex: match[1],
+          tr.replaceWith(
+            start,
+            end,
+            this.type.create({
+              latex,
               displayMode: true,
-            }));
-          }
+            })
+          );
         },
       }),
     ];
   },
 });
+

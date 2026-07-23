@@ -24,13 +24,13 @@ export const InlineMath = Node.create({
       {
         tag: 'span[data-type="inline-math"]',
         getAttrs: (element: HTMLElement) => ({
-          latex: element.getAttribute('data-latex'),
+          latex: element.getAttribute('data-latex') || '',
         }),
       },
       {
         tag: 'math-inline',
         getAttrs: (element: HTMLElement) => ({
-          latex: element.textContent,
+          latex: element.textContent || '',
         }),
       },
     ];
@@ -47,21 +47,21 @@ export const InlineMath = Node.create({
   addInputRules() {
     return [
       new InputRule({
-        find: /(?:^|\s)\$([^\s\$][^\$]*[^\s\$]?)\$$/,
+        // Matches $latex$ where there is no $ before the opening $ or after the closing $
+        find: /(?:^|[^$])\$([^$]+)\$$/,
         handler: ({ state, range, match }) => {
           const { tr } = state;
-          // match[0] is " $x$", match[1] is "x"
-          // We want to keep the character before the first $ if it's a space
+          const latex = match[1] ? match[1].trim() : '';
+          if (!latex) return;
+
           const offset = match[0].indexOf('$');
           const start = range.from + offset;
           const end = range.to;
 
-          if (match[1]) {
-            tr.replaceWith(start, end, this.type.create({
-              latex: match[1],
-              displayMode: false,
-            }));
-          }
+          tr.replaceWith(start, end, this.type.create({
+            latex,
+            displayMode: false,
+          }));
         },
       }),
     ];
@@ -70,20 +70,22 @@ export const InlineMath = Node.create({
   addPasteRules() {
     return [
       new PasteRule({
-        find: /\$([^\$]+)\$/g,
+        find: /(?<!\$)\$([^\$]+?)\$(?!\$)/g,
         handler: ({ state, range, match }) => {
           const { tr } = state;
+          const latex = match[1] ? match[1].trim() : '';
+          if (!latex) return;
+
           const start = range.from;
           const end = range.to;
 
-          if (match[1]) {
-            tr.replaceWith(start, end, this.type.create({
-              latex: match[1],
-              displayMode: false,
-            }));
-          }
+          tr.replaceWith(start, end, this.type.create({
+            latex,
+            displayMode: false,
+          }));
         },
       }),
     ];
   },
 });
+
