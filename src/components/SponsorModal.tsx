@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Heart, Coffee, X, Check, Copy, Sparkles, QrCode, ShieldCheck, Gift } from 'lucide-react';
+import { Heart, Coffee, X, Check, Copy, Sparkles, QrCode, ShieldCheck, Gift, RotateCw, AlertTriangle, Image as ImageIcon } from 'lucide-react';
 
 // =========================================================================
 // 💡 自定义二维码图片设置：
@@ -27,6 +27,7 @@ export const SponsorModal: React.FC<SponsorModalProps> = ({ isOpen, onClose, sho
   const [customWechatUploaded, setCustomWechatUploaded] = useState<string | null>(null);
   const [customAlipayUploaded, setCustomAlipayUploaded] = useState<string | null>(null);
   const [imgErrorMap, setImgErrorMap] = useState<Record<string, boolean>>({});
+  const [imgLoadingMap, setImgLoadingMap] = useState<Record<string, boolean>>({});
 
   if (!isOpen) return null;
 
@@ -34,7 +35,15 @@ export const SponsorModal: React.FC<SponsorModalProps> = ({ isOpen, onClose, sho
   const activeAlipayQr = customAlipayUploaded || CUSTOM_ALIPAY_QR;
 
   const currentQrImage = payMethod === 'wechat' ? activeWechatQr : activeAlipayQr;
-  const isCurrentImgValid = currentQrImage && !imgErrorMap[currentQrImage];
+  const isCurrentImgFailed = !!(currentQrImage && imgErrorMap[currentQrImage]);
+  const isCurrentImgLoading = !!(currentQrImage && imgLoadingMap[currentQrImage]);
+
+  const handleRetryLoad = () => {
+    if (currentQrImage) {
+      setImgErrorMap(prev => ({ ...prev, [currentQrImage]: false }));
+      setImgLoadingMap(prev => ({ ...prev, [currentQrImage]: true }));
+    }
+  };
 
   const handleQrUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -45,10 +54,12 @@ export const SponsorModal: React.FC<SponsorModalProps> = ({ isOpen, onClose, sho
         if (payMethod === 'wechat') {
           setCustomWechatUploaded(result);
           setImgErrorMap(prev => ({ ...prev, [result]: false }));
+          setImgLoadingMap(prev => ({ ...prev, [result]: false }));
           if (showToast) showToast('✅ 微信收款二维码图片更新成功！');
         } else {
           setCustomAlipayUploaded(result);
           setImgErrorMap(prev => ({ ...prev, [result]: false }));
+          setImgLoadingMap(prev => ({ ...prev, [result]: false }));
           if (showToast) showToast('✅ 支付宝收款二维码图片更新成功！');
         }
       };
@@ -192,139 +203,151 @@ export const SponsorModal: React.FC<SponsorModalProps> = ({ isOpen, onClose, sho
             <div className="flex flex-col items-center justify-center p-6 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-4">
               <div className="relative group">
                 <div
-                  className={`p-3 bg-white rounded-2xl shadow-md border-2 transition-all flex items-center justify-center w-48 h-48 overflow-hidden ${
+                  className={`p-3 bg-white rounded-2xl shadow-md border-2 transition-all flex items-center justify-center w-48 h-48 overflow-hidden relative ${
                     payMethod === 'wechat' ? 'border-[#07C160]' : 'border-[#1677FF]'
                   }`}
                 >
-                  {isCurrentImgValid ? (
+                  {currentQrImage && !isCurrentImgFailed ? (
                     <img
+                      key={currentQrImage}
                       src={currentQrImage}
                       alt={`${payMethod === 'wechat' ? '微信' : '支付宝'}收款二维码`}
                       className="w-full h-full object-contain rounded-xl"
                       onError={() => {
                         if (currentQrImage) {
                           setImgErrorMap(prev => ({ ...prev, [currentQrImage]: true }));
+                          setImgLoadingMap(prev => ({ ...prev, [currentQrImage]: false }));
+                        }
+                      }}
+                      onLoad={() => {
+                        if (currentQrImage) {
+                          setImgLoadingMap(prev => ({ ...prev, [currentQrImage]: false }));
                         }
                       }}
                     />
                   ) : (
-                    /* Generated QR Code SVG fallback */
-                    <svg
-                      width="160"
-                      height="160"
-                      viewBox="0 0 160 160"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                      className="w-40 h-40"
-                    >
-                      {/* Background */}
-                      <rect width="160" height="160" rx="8" fill="white" />
-                      
-                      {/* Outer finder patterns */}
-                      {/* Top-Left Finder */}
-                      <rect x="10" y="10" width="40" height="40" rx="6" fill={payMethod === 'wechat' ? '#07C160' : '#1677FF'} />
-                      <rect x="16" y="16" width="28" height="28" rx="3" fill="white" />
-                      <rect x="22" y="22" width="16" height="16" rx="2" fill={payMethod === 'wechat' ? '#07C160' : '#1677FF'} />
+                    /* Generated QR Code SVG fallback with clear notice */
+                    <div className="w-full h-full flex flex-col items-center justify-center relative">
+                      <svg
+                        width="160"
+                        height="160"
+                        viewBox="0 0 160 160"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="w-40 h-40 opacity-90"
+                      >
+                        {/* Background */}
+                        <rect width="160" height="160" rx="8" fill="white" />
+                        
+                        {/* Outer finder patterns */}
+                        <rect x="10" y="10" width="40" height="40" rx="6" fill={payMethod === 'wechat' ? '#07C160' : '#1677FF'} />
+                        <rect x="16" y="16" width="28" height="28" rx="3" fill="white" />
+                        <rect x="22" y="22" width="16" height="16" rx="2" fill={payMethod === 'wechat' ? '#07C160' : '#1677FF'} />
 
-                      {/* Top-Right Finder */}
-                      <rect x="110" y="10" width="40" height="40" rx="6" fill={payMethod === 'wechat' ? '#07C160' : '#1677FF'} />
-                      <rect x="116" y="16" width="28" height="28" rx="3" fill="white" />
-                      <rect x="122" y="22" width="16" height="16" rx="2" fill={payMethod === 'wechat' ? '#07C160' : '#1677FF'} />
+                        <rect x="110" y="10" width="40" height="40" rx="6" fill={payMethod === 'wechat' ? '#07C160' : '#1677FF'} />
+                        <rect x="116" y="16" width="28" height="28" rx="3" fill="white" />
+                        <rect x="122" y="22" width="16" height="16" rx="2" fill={payMethod === 'wechat' ? '#07C160' : '#1677FF'} />
 
-                      {/* Bottom-Left Finder */}
-                      <rect x="10" y="110" width="40" height="40" rx="6" fill={payMethod === 'wechat' ? '#07C160' : '#1677FF'} />
-                      <rect x="16" y="116" width="28" height="28" rx="3" fill="white" />
-                      <rect x="22" y="122" width="16" height="16" rx="2" fill={payMethod === 'wechat' ? '#07C160' : '#1677FF'} />
+                        <rect x="10" y="110" width="40" height="40" rx="6" fill={payMethod === 'wechat' ? '#07C160' : '#1677FF'} />
+                        <rect x="16" y="116" width="28" height="28" rx="3" fill="white" />
+                        <rect x="22" y="122" width="16" height="16" rx="2" fill={payMethod === 'wechat' ? '#07C160' : '#1677FF'} />
 
-                      {/* Simulated QR Code Data Matrix */}
-                      <g fill="#1E293B">
-                        <rect x="58" y="12" width="8" height="8" rx="1.5" />
-                        <rect x="70" y="12" width="8" height="8" rx="1.5" />
-                        <rect x="86" y="12" width="16" height="8" rx="1.5" />
-                        <rect x="58" y="24" width="16" height="8" rx="1.5" />
-                        <rect x="80" y="24" width="8" height="8" rx="1.5" />
-                        <rect x="94" y="24" width="8" height="8" rx="1.5" />
-                        <rect x="62" y="36" width="8" height="8" rx="1.5" />
-                        <rect x="76" y="36" width="16" height="8" rx="1.5" />
+                        {/* Matrix dots */}
+                        <g fill="#1E293B">
+                          <rect x="58" y="12" width="8" height="8" rx="1.5" />
+                          <rect x="70" y="12" width="8" height="8" rx="1.5" />
+                          <rect x="86" y="12" width="16" height="8" rx="1.5" />
+                          <rect x="58" y="24" width="16" height="8" rx="1.5" />
+                          <rect x="80" y="24" width="8" height="8" rx="1.5" />
+                          <rect x="94" y="24" width="8" height="8" rx="1.5" />
+                          <rect x="62" y="36" width="8" height="8" rx="1.5" />
+                          <rect x="76" y="36" width="16" height="8" rx="1.5" />
 
-                        {/* Middle Data Dots */}
-                        <rect x="12" y="58" width="8" height="16" rx="1.5" />
-                        <rect x="24" y="62" width="12" height="8" rx="1.5" />
-                        <rect x="42" y="58" width="8" height="8" rx="1.5" />
-                        <rect x="54" y="58" width="16" height="8" rx="1.5" />
-                        <rect x="74" y="58" width="8" height="8" rx="1.5" />
-                        <rect x="86" y="58" width="16" height="16" rx="1.5" />
-                        <rect x="106" y="58" width="12" height="8" rx="1.5" />
-                        <rect x="124" y="58" width="8" height="16" rx="1.5" />
-                        <rect x="136" y="58" width="12" height="8" rx="1.5" />
+                          <rect x="12" y="58" width="8" height="16" rx="1.5" />
+                          <rect x="24" y="62" width="12" height="8" rx="1.5" />
+                          <rect x="42" y="58" width="8" height="8" rx="1.5" />
+                          <rect x="54" y="58" width="16" height="8" rx="1.5" />
+                          <rect x="74" y="58" width="8" height="8" rx="1.5" />
+                          <rect x="86" y="58" width="16" height="16" rx="1.5" />
+                          <rect x="106" y="58" width="12" height="8" rx="1.5" />
+                          <rect x="124" y="58" width="8" height="16" rx="1.5" />
+                          <rect x="136" y="58" width="12" height="8" rx="1.5" />
 
-                        <rect x="12" y="80" width="16" height="8" rx="1.5" />
-                        <rect x="34" y="78" width="8" height="16" rx="1.5" />
-                        <rect x="48" y="80" width="8" height="8" rx="1.5" />
-                        <rect x="60" y="74" width="16" height="8" rx="1.5" />
-                        <rect x="108" y="76" width="8" height="16" rx="1.5" />
-                        <rect x="120" y="80" width="16" height="8" rx="1.5" />
-                        <rect x="140" y="78" width="8" height="12" rx="1.5" />
+                          <rect x="12" y="80" width="16" height="8" rx="1.5" />
+                          <rect x="34" y="78" width="8" height="16" rx="1.5" />
+                          <rect x="48" y="80" width="8" height="8" rx="1.5" />
+                          <rect x="60" y="74" width="16" height="8" rx="1.5" />
+                          <rect x="108" y="76" width="8" height="16" rx="1.5" />
+                          <rect x="120" y="80" width="16" height="8" rx="1.5" />
+                          <rect x="140" y="78" width="8" height="12" rx="1.5" />
 
-                        <rect x="58" y="94" width="8" height="8" rx="1.5" />
-                        <rect x="70" y="94" width="16" height="8" rx="1.5" />
-                        <rect x="90" y="94" width="8" height="16" rx="1.5" />
-                        <rect x="104" y="94" width="16" height="8" rx="1.5" />
-                        <rect x="126" y="94" width="8" height="8" rx="1.5" />
-                        <rect x="138" y="94" width="12" height="8" rx="1.5" />
+                          <rect x="58" y="94" width="8" height="8" rx="1.5" />
+                          <rect x="70" y="94" width="16" height="8" rx="1.5" />
+                          <rect x="90" y="94" width="8" height="16" rx="1.5" />
+                          <rect x="104" y="94" width="16" height="8" rx="1.5" />
+                          <rect x="126" y="94" width="8" height="8" rx="1.5" />
+                          <rect x="138" y="94" width="12" height="8" rx="1.5" />
 
-                        {/* Bottom Right Quadrant */}
-                        <rect x="58" y="112" width="16" height="8" rx="1.5" />
-                        <rect x="80" y="112" width="8" height="8" rx="1.5" />
-                        <rect x="92" y="112" width="16" height="16" rx="1.5" />
-                        <rect x="114" y="112" width="8" height="8" rx="1.5" />
-                        <rect x="126" y="112" width="16" height="8" rx="1.5" />
+                          <rect x="58" y="112" width="16" height="8" rx="1.5" />
+                          <rect x="80" y="112" width="8" height="8" rx="1.5" />
+                          <rect x="92" y="112" width="16" height="16" rx="1.5" />
+                          <rect x="114" y="112" width="8" height="8" rx="1.5" />
+                          <rect x="126" y="112" width="16" height="8" rx="1.5" />
 
-                        <rect x="58" y="126" width="8" height="16" rx="1.5" />
-                        <rect x="72" y="128" width="16" height="8" rx="1.5" />
-                        <rect x="114" y="126" width="16" height="8" rx="1.5" />
-                        <rect x="136" y="126" width="12" height="16" rx="1.5" />
+                          <rect x="58" y="126" width="8" height="16" rx="1.5" />
+                          <rect x="72" y="128" width="16" height="8" rx="1.5" />
+                          <rect x="114" y="126" width="16" height="8" rx="1.5" />
+                          <rect x="136" y="126" width="12" height="16" rx="1.5" />
 
-                        <rect x="62" y="144" width="16" height="8" rx="1.5" />
-                        <rect x="84" y="144" width="12" height="8" rx="1.5" />
-                        <rect x="102" y="144" width="8" height="8" rx="1.5" />
-                        <rect x="116" y="144" width="16" height="8" rx="1.5" />
-                      </g>
-
-                      {/* Center Brand Badge Insert */}
-                      <rect x="62" y="62" width="36" height="36" rx="10" fill="white" stroke="#E2E8F0" strokeWidth="2" />
-                      {payMethod === 'wechat' ? (
-                        <g transform="translate(68, 68)">
-                          <circle cx="12" cy="12" r="11" fill="#07C160" />
-                          <path d="M9 10C9 8.3 10.8 7 13 7C15.2 7 17 8.3 17 10C17 11.7 15.2 13 13 13C12.4 13 11.8 12.8 11.3 12.5L9.5 13L10 11.5C9.4 11.1 9 10.6 9 10Z" fill="white" />
+                          <rect x="62" y="144" width="16" height="8" rx="1.5" />
+                          <rect x="84" y="144" width="12" height="8" rx="1.5" />
+                          <rect x="102" y="144" width="8" height="8" rx="1.5" />
+                          <rect x="116" y="144" width="16" height="8" rx="1.5" />
                         </g>
-                      ) : (
-                        <g transform="translate(68, 68)">
-                          <circle cx="12" cy="12" r="11" fill="#1677FF" />
-                          <text x="12" y="16" fontSize="13" fontWeight="bold" fill="white" textAnchor="middle">支</text>
-                        </g>
-                      )}
-                    </svg>
+
+                        {/* Center Brand Badge Insert */}
+                        <rect x="62" y="62" width="36" height="36" rx="10" fill="white" stroke="#E2E8F0" strokeWidth="2" />
+                        {payMethod === 'wechat' ? (
+                          <g transform="translate(68, 68)">
+                            <circle cx="12" cy="12" r="11" fill="#07C160" />
+                            <path d="M9 10C9 8.3 10.8 7 13 7C15.2 7 17 8.3 17 10C17 11.7 15.2 13 13 13C12.4 13 11.8 12.8 11.3 12.5L9.5 13L10 11.5C9.4 11.1 9 10.6 9 10Z" fill="white" />
+                          </g>
+                        ) : (
+                          <g transform="translate(68, 68)">
+                            <circle cx="12" cy="12" r="11" fill="#1677FF" />
+                            <text x="12" y="16" fontSize="13" fontWeight="bold" fill="white" textAnchor="middle">支</text>
+                          </g>
+                        )}
+                      </svg>
+                    </div>
                   )}
                 </div>
               </div>
 
-              {/* Upload button for changing QR code */}
+              {/* Notice when image is failed to load */}
+              {isCurrentImgFailed && (
+                <div className="w-full max-w-sm p-2.5 rounded-xl bg-amber-50 border border-amber-200/80 text-[11px] text-amber-800 flex items-center justify-between gap-2 shadow-2xs">
+                  <div className="flex items-center gap-1.5 leading-snug">
+                    <AlertTriangle size={15} className="text-amber-600 shrink-0" />
+                    <span>自定义{payMethod === 'wechat' ? '微信' : '支付宝'}图片未加载成功，已自动展示示范二维码。</span>
+                  </div>
+                  <button
+                    onClick={handleRetryLoad}
+                    className="shrink-0 px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                    title="重试加载"
+                  >
+                    <RotateCw size={11} />
+                    <span>重试</span>
+                  </button>
+                </div>
+              )}
+
+              {/* QR Scan Instructions */}
               <div className="flex flex-col items-center gap-1.5">
                 <p className="text-sm font-bold text-slate-800 flex items-center justify-center gap-1.5">
                   <QrCode size={16} className={payMethod === 'wechat' ? 'text-[#07C160]' : 'text-[#1677FF]'} />
                   请使用 {payMethod === 'wechat' ? '微信' : '支付宝'} 扫描二维码赞赏 <span className="text-rose-600 font-extrabold">¥{selectedAmount}</span>
                 </p>
-                
-                <label className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 bg-white border border-slate-200 hover:border-slate-300 px-3 py-1 rounded-lg cursor-pointer transition-all shadow-xs flex items-center gap-1 mt-1">
-                  <span>上传/更换{payMethod === 'wechat' ? '微信' : '支付宝'}二维码图片</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleQrUpload}
-                    className="hidden"
-                  />
-                </label>
               </div>
             </div>
 
