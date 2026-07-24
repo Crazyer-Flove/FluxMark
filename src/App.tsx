@@ -5,8 +5,9 @@ import {
   ChevronLeft, ChevronRight, Maximize2, ZoomIn, ZoomOut, PanelLeftClose, PanelLeft,
   Folder, FilePlus, ChevronDown, Superscript as SuperscriptIcon, Subscript as SubscriptIcon,
   Type, Palette, AlignCenter, AlignLeft, Trash2, Printer, MousePointer2, Pencil, Eraser, Timer, RefreshCcw, Target,
-  FileCode, Share2, HelpCircle, FileDown, Upload, Bold, Italic, List, Heading1, Heading2, Quote, Highlighter, Video as VideoIcon,
-  AlertCircle, Check, Plus, BookOpen, Keyboard
+  FileCode, Share2, HelpCircle, FileDown, Upload, Bold, Italic, List, ListTodo, Heading1, Heading2, Quote, Highlighter, Video as VideoIcon,
+  Undo, Redo, Wand2,
+  AlertCircle, Check, Plus, BookOpen, Keyboard, UserCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toCanvas } from 'html-to-image';
@@ -31,6 +32,8 @@ import Highlight from '@tiptap/extension-highlight';
 import Superscript from '@tiptap/extension-superscript';
 import Subscript from '@tiptap/extension-subscript';
 import TextAlign from '@tiptap/extension-text-align';
+import TaskList from '@tiptap/extension-task-list';
+import TaskItem from '@tiptap/extension-task-item';
 import { common, createLowlight } from 'lowlight';
 
 import { CustomCodeBlock } from './extensions/CustomCodeBlock';
@@ -43,6 +46,8 @@ import { EmojiSuggestion } from './extensions/EmojiSuggestion';
 import { AIChat } from './components/AIChat';
 import { DocumentOutlineStats } from './components/DocumentOutlineStats';
 import { HighlightPopover } from './components/HighlightPopover';
+import { StudentPickerModal } from './components/StudentPickerModal';
+import { ImageCropperModal } from './components/ImageCropperModal';
 import { Sparkles as SparklesIcon } from 'lucide-react';
 
 const lowlight = createLowlight(common);
@@ -289,6 +294,7 @@ export default function App() {
   const [countdownValue, setCountdownValue] = useState<number>(0);
   const [isCountdownMode, setIsCountdownMode] = useState<boolean>(false);
   const [showCountdownModal, setShowCountdownModal] = useState<boolean>(false);
+  const [showStudentPickerModal, setShowStudentPickerModal] = useState<boolean>(false);
   const [timerScale, setTimerScale] = useState<number>(1);
   const [countdownModalScale, setCountdownModalScale] = useState<number>(1);
 
@@ -382,6 +388,10 @@ export default function App() {
       TextAlign.configure({
         types: ['heading', 'paragraph', 'image'],
       }),
+      TaskList,
+      TaskItem.configure({
+        nested: true,
+      }),
       CustomCodeBlock.configure({
         lowlight,
       }),
@@ -409,19 +419,21 @@ export default function App() {
       const html = editor.getHTML();
       localStorage.setItem(FLUXMARK_STORAGE_KEY, html);
 
-      // Update outline
-      const headings: { id: string, text: string, level: number, pos: number }[] = [];
-      editor.state.doc.descendants((node, pos) => {
-        if (node.type.name === 'heading') {
-          headings.push({
-            id: `heading-${pos}`,
-            text: node.textContent,
-            level: node.attrs.level,
-            pos: pos
-          });
-        }
+      // Update outline in microtask to avoid flushSync during render/lifecycle
+      queueMicrotask(() => {
+        const headings: { id: string, text: string, level: number, pos: number }[] = [];
+        editor.state.doc.descendants((node, pos) => {
+          if (node.type.name === 'heading') {
+            headings.push({
+              id: `heading-${pos}`,
+              text: node.textContent,
+              level: node.attrs.level,
+              pos: pos
+            });
+          }
+        });
+        setOutline(headings);
       });
-      setOutline(headings);
     }
   });
 
@@ -460,6 +472,10 @@ export default function App() {
       TextAlign.configure({
         types: ['heading', 'paragraph', 'image'],
       }),
+      TaskList,
+      TaskItem.configure({
+        nested: true,
+      }),
       CustomCodeBlock.configure({
         lowlight,
       }),
@@ -486,18 +502,20 @@ export default function App() {
 
       const targetIdx = Math.min(Math.max(0, currentSlideIndex), rawSlides.length - 1);
 
-      if (subSlides.length > 1) {
-        rawSlides.splice(targetIdx, 1, ...subSlides);
-        const newFullContent = rawSlides.join('<hr>');
-        //@ts-ignore
-        editor.commands.setContent(newFullContent, false);
-        setCurrentSlideIndex(targetIdx + 1);
-      } else {
-        rawSlides[targetIdx] = currentSlideHtml;
-        const newFullContent = rawSlides.join('<hr>');
-        //@ts-ignore
-        editor.commands.setContent(newFullContent, false);
-      }
+      queueMicrotask(() => {
+        if (subSlides.length > 1) {
+          rawSlides.splice(targetIdx, 1, ...subSlides);
+          const newFullContent = rawSlides.join('<hr>');
+          //@ts-ignore
+          editor.commands.setContent(newFullContent, false);
+          setCurrentSlideIndex(targetIdx + 1);
+        } else {
+          rawSlides[targetIdx] = currentSlideHtml;
+          const newFullContent = rawSlides.join('<hr>');
+          //@ts-ignore
+          editor.commands.setContent(newFullContent, false);
+        }
+      });
     },
   });
 
@@ -511,9 +529,11 @@ export default function App() {
 
       if (slideEditor.getHTML() !== targetContent) {
         isUpdatingFromSlideRef.current = true;
-        //@ts-ignore
-        slideEditor.commands.setContent(targetContent, false);
-        isUpdatingFromSlideRef.current = false;
+        queueMicrotask(() => {
+          //@ts-ignore
+          slideEditor.commands.setContent(targetContent, false);
+          isUpdatingFromSlideRef.current = false;
+        });
       }
     }
   }, [isPresentation, currentSlideIndex, editor, slideEditor]);
@@ -821,14 +841,17 @@ export default function App() {
   }, [editor, handleSelectionUpdate]);
 
   // 样式应用
-  const applyStyle = (style: 'bold' | 'italic' | 'heading' | 'bullet' | 'quote' | 'color' | 'size' | 'align' | 'clear' | 'highlight' | 'superscript' | 'subscript', value?: string | number) => {
+  const applyStyle = (style: 'bold' | 'italic' | 'heading' | 'bullet' | 'task' | 'quote' | 'color' | 'size' | 'align' | 'clear' | 'highlight' | 'superscript' | 'subscript' | 'undo' | 'redo', value?: string | number) => {
     if (!editor) return;
 
     switch (style) {
+      case 'undo': editor.chain().focus().undo().run(); break;
+      case 'redo': editor.chain().focus().redo().run(); break;
       case 'bold': editor.chain().focus().toggleBold().run(); break;
       case 'italic': editor.chain().focus().toggleItalic().run(); break;
       case 'heading': editor.chain().focus().toggleHeading({ level: value as any || 1 }).run(); break;
       case 'bullet': editor.chain().focus().toggleBulletList().run(); break;
+      case 'task': editor.chain().focus().toggleTaskList().run(); break;
       case 'quote': editor.chain().focus().toggleBlockquote().run(); break;
       case 'align': editor.chain().focus().setTextAlign(value as string || 'left').run(); break;
       case 'color': editor.chain().focus().setColor(value as string).run(); break;
@@ -853,6 +876,88 @@ export default function App() {
     }
     
     setSelection(s => ({ ...s, visible: false }));
+  };
+
+  // 智能排版函数：清理冗余空格、规范中英文/数字盘古间距、处理空行与列表样式
+  const handleSmartFormat = () => {
+    if (!editor) return;
+
+    try {
+      const html = editor.getHTML();
+      if (!html || html === '<p></p>') return;
+
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+
+      // 递归处理文本节点
+      const processTextNodes = (node: Node) => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          let text = node.textContent || '';
+          if (!text) return;
+
+          // 1. 中英文及数字之间自动规范增加空格 (盘古排版)
+          text = text.replace(/([\u4e00-\u9fa5\u3040-\u30ff])([A-Za-z0-9])/g, '$1 $2');
+          text = text.replace(/([A-Za-z0-9])([\u4e00-\u9fa5\u3040-\u30ff])/g, '$1 $2');
+
+          // 2. 修正连续的多余普通空格
+          text = text.replace(/[ \t]{2,}/g, ' ');
+
+          // 3. 规范中文全角标点两侧的冗余空格
+          text = text.replace(/\s*([，。！？：；“”‘’（）《》【】])\s*/g, '$1');
+
+          // 4. 英文标点后面保留规范单空格
+          text = text.replace(/([a-zA-Z0-9]),([a-zA-Z])/g, '$1, $2');
+          text = text.replace(/([a-zA-Z0-9]):([a-zA-Z])/g, '$1: $2');
+
+          node.textContent = text;
+        } else {
+          const el = node as HTMLElement;
+          // 跳过代码块与数学公式节点
+          if (
+            node.nodeName === 'PRE' || 
+            node.nodeName === 'CODE' || 
+            el.classList?.contains('katex') || 
+            el.getAttribute?.('data-type') === 'mathInline'
+          ) {
+            return;
+          }
+          node.childNodes.forEach(processTextNodes);
+        }
+      };
+
+      processTextNodes(doc.body);
+
+      // 清理超过 1 行的连续空段落
+      const paragraphs = Array.from(doc.body.querySelectorAll('p'));
+      let emptyCount = 0;
+      paragraphs.forEach((p) => {
+        const text = p.textContent?.trim() || '';
+        const hasMedia = p.querySelector('img, video, iframe, svg, input');
+        if (!text && !hasMedia && p.children.length === 0) {
+          emptyCount++;
+          if (emptyCount > 1) {
+            p.remove();
+          }
+        } else {
+          emptyCount = 0;
+        }
+      });
+
+      // 清理无内容的空白列表项
+      doc.body.querySelectorAll('li').forEach(li => {
+        if (!li.textContent?.trim() && li.children.length === 0) {
+          li.remove();
+        }
+      });
+
+      const formattedHtml = doc.body.innerHTML;
+      editor.commands.setContent(formattedHtml);
+      editor.commands.focus();
+      showToast('✨ 已完成文档智能格式重排与排版优化！');
+    } catch (e) {
+      console.error('Smart format error:', e);
+      showToast('智能排版处理遇到微小异常，请重试');
+    }
   };
 
   // 文件操作
@@ -2512,10 +2617,14 @@ export default function App() {
               </div>
 
               <div className="fixed bottom-16 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-[var(--bg-primary)] p-2 rounded-2xl shadow-2xl border border-[var(--border)] z-30 opacity-0 group-hover:opacity-100 transition-opacity">
-                <QuickTool icon={<Heading1 size={14}/>} onClick={() => applyStyle('heading', 1)} title="一级标题" />
-                <QuickTool icon={<Heading2 size={14}/>} onClick={() => applyStyle('heading', 2)} title="二级标题" />
-                <QuickTool icon={<Bold size={14}/>} onClick={() => applyStyle('bold')} title="加粗" />
-                <QuickTool icon={<Italic size={14}/>} onClick={() => applyStyle('italic')} title="斜体" />
+                <QuickTool icon={<Undo size={14}/>} onClick={() => applyStyle('undo')} title="撤销 (Ctrl+Z)" disabled={!editor?.can().undo()} />
+                <QuickTool icon={<Redo size={14}/>} onClick={() => applyStyle('redo')} title="重做 (Ctrl+Y)" disabled={!editor?.can().redo()} />
+                <QuickTool icon={<Wand2 size={14} className="text-indigo-500 hover:rotate-12 transition-transform"/>} onClick={handleSmartFormat} title="一键智能排版 (自动优化中英文空格、消除多余空行与规范标点)" />
+                <div className="w-px h-4 bg-[var(--border)] mx-1" />
+                <QuickTool icon={<Heading1 size={14}/>} onClick={() => applyStyle('heading', 1)} title="一级标题" isActive={editor?.isActive('heading', { level: 1 })} />
+                <QuickTool icon={<Heading2 size={14}/>} onClick={() => applyStyle('heading', 2)} title="二级标题" isActive={editor?.isActive('heading', { level: 2 })} />
+                <QuickTool icon={<Bold size={14}/>} onClick={() => applyStyle('bold')} title="加粗" isActive={editor?.isActive('bold')} />
+                <QuickTool icon={<Italic size={14}/>} onClick={() => applyStyle('italic')} title="斜体" isActive={editor?.isActive('italic')} />
                 
                 {/* Text Highlighting Quick Tool */}
                 <div className="relative">
@@ -2558,8 +2667,9 @@ export default function App() {
                   )}
                 </div>
 
-                <QuickTool icon={<List size={14}/>} onClick={() => applyStyle('bullet')} title="无序列表" />
-                <QuickTool icon={<Quote size={14}/>} onClick={() => applyStyle('quote')} title="引用" />
+                <QuickTool icon={<List size={14}/>} onClick={() => applyStyle('bullet')} title="无序列表" isActive={editor?.isActive('bulletList')} />
+                <QuickTool icon={<ListTodo size={14}/>} onClick={() => applyStyle('task')} title="任务清单" isActive={editor?.isActive('taskList')} />
+                <QuickTool icon={<Quote size={14}/>} onClick={() => applyStyle('quote')} title="引用" isActive={editor?.isActive('blockquote')} />
                 <div className="w-px h-4 bg-[var(--border)] mx-1" />
                 <QuickTool icon={<AlignCenter size={14}/>} onClick={() => applyStyle('align', 'center')} title="居中对齐" />
                 <QuickTool icon={<AlignLeft size={14}/>} onClick={() => applyStyle('align', 'left')} title="左对齐" />
@@ -2716,6 +2826,7 @@ export default function App() {
                   <div className="h-px bg-[var(--border)] mx-2 my-1" />
                   <PresToolBtn active={showCountdownModal} onClick={() => setShowCountdownModal(true)} icon={<Timer size={20} />} label="设置倒计时" />
                   {!isCountdownMode && <PresToolBtn active={showTimer} onClick={() => setShowTimer(!showTimer)} icon={<Timer size={20} className="opacity-50" />} label="显示时长" />}
+                  <PresToolBtn active={showStudentPickerModal} onClick={() => setShowStudentPickerModal(true)} icon={<UserCheck size={20} className="text-amber-500 hover:scale-110 transition-transform" />} label="随机点名 (转盘)" />
                   <PresToolBtn 
                     active={false} 
                     onClick={() => {
@@ -2920,40 +3031,17 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* --- Image Cropper Modal --- */}
-      <AnimatePresence>
-        {cropImage && (
-          <motion.div 
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-8 backdrop-blur-sm"
-          >
-            <div className="bg-white rounded-2xl w-full max-w-2xl overflow-hidden flex flex-col shadow-2xl">
-              <div className="p-4 border-b flex justify-between items-center bg-gray-50">
-                <h3 className="font-bold text-gray-800">裁剪与缩放图片</h3>
-                <button onClick={() => setCropImage(null)}><Maximize2 size={20} className="rotate-45 text-gray-400" /></button>
-              </div>
-              <div className="aspect-video relative bg-checkered p-4">
-                <img 
-                  src={cropImage} 
-                  onLoad={(e) => {
-                    cropperRef.current = new Cropper(e.currentTarget, {
-                      aspectRatio: 16 / 9, // Using a fixed ratio to avoid NaN typing issues or use a valid number
-                      viewMode: 1,
-                      dragMode: 'move',
-                      autoCropArea: 0.9,
-                    });
-                  }}
-                  className="max-w-full block"
-                />
-              </div>
-              <div className="p-4 flex justify-end gap-3 bg-gray-50">
-                <button onClick={() => setCropImage(null)} className="px-6 py-2 border rounded-xl hover:bg-white transition-colors cursor-pointer font-medium text-gray-600">取消</button>
-                <button onClick={handleCrop} className="px-6 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors cursor-pointer font-medium shadow-md">插入文本</button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* --- Image Cropper & Filters Modal --- */}
+      <ImageCropperModal
+        imageSrc={cropImage}
+        onClose={() => setCropImage(null)}
+        onConfirm={(processedBase64) => {
+          if (editor) {
+            editor.chain().focus().setImage({ src: processedBase64 }).run();
+          }
+          setCropImage(null);
+        }}
+      />
 
 
       
@@ -3081,42 +3169,47 @@ export default function App() {
                     </div>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div>
                       <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <Type size={14} /> 文本编辑
+                        <Type size={14} /> 文本与格式排版
                       </h4>
-                      <div className="space-y-3">
-                        <ShortcutRow label="加粗" keys={['Ctrl', 'B']} />
-                        <ShortcutRow label="斜体" keys={['Ctrl', 'I']} />
-                        <ShortcutRow label="高亮" keys={['Ctrl', 'Shift', 'H']} />
-                        <ShortcutRow label="一级标题" keys={['Ctrl', 'Alt', '1']} />
-                        <ShortcutRow label="二级标题" keys={['Ctrl', 'Alt', '2']} />
+                      <div className="space-y-2.5">
+                        <ShortcutRow label="文本加粗" keys={['Ctrl', 'B']} />
+                        <ShortcutRow label="文本斜体" keys={['Ctrl', 'I']} />
+                        <ShortcutRow label="文本高亮" keys={['Ctrl', 'Shift', 'H']} />
+                        <ShortcutRow label="一级 / 二级标题" keys={['Ctrl', 'Alt', '1 / 2']} />
                         <ShortcutRow label="无序列表" keys={['Ctrl', 'Shift', '8']} />
                         <ShortcutRow label="有序列表" keys={['Ctrl', 'Shift', '7']} />
+                        <ShortcutRow label="任务清单 (待办)" keys={['Ctrl', 'Shift', '9']} />
                         <ShortcutRow label="块引用" keys={['Ctrl', 'Shift', 'B']} />
-                        <ShortcutRow label="内联代码" keys={['Ctrl', 'E']} />
+                        <ShortcutRow label="行内代码" keys={['Ctrl', 'E']} />
                         <ShortcutRow label="代码块" keys={['Ctrl', 'Alt', 'C']} />
-                        <ShortcutRow label="标题补全" keys={['#']} />
-                        <ShortcutRow label="Emoji 表情" keys={[':']} />
+                        <ShortcutRow label="标题补全建议" keys={['#', 'Space']} />
+                        <ShortcutRow label="Emoji 表情选择" keys={[':']} />
                       </div>
                     </div>
 
                     <div>
                       <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <Layout size={14} /> 系统功能
+                        <Layout size={14} /> 系统功能与辅助工具
                       </h4>
-                      <div className="space-y-3">
-                        <ShortcutRow label="保存 (覆盖源文件)" keys={['Ctrl', 'S']} />
-                        <ShortcutRow label="另存为 (选择路径)" keys={['Ctrl', 'Shift', 'S']} />
-                        <ShortcutRow label="新建文档" keys={['Ctrl', 'Alt', 'N']} />
+                      <div className="space-y-2.5">
+                        <ShortcutRow label="保存文档" keys={['Ctrl', 'S']} />
+                        <ShortcutRow label="另存为" keys={['Ctrl', 'Shift', 'S']} />
+                        <ShortcutRow label="新建空白文档" keys={['Ctrl', 'Alt', 'N']} />
+                        <ShortcutRow label="打开本地文件" keys={['Ctrl', 'O']} />
                         <ShortcutRow label="撤销操作" keys={['Ctrl', 'Z']} />
-                        <ShortcutRow label="重做操作" keys={['Ctrl', 'Shift', 'Z']} />
+                        <ShortcutRow label="重做操作" keys={['Ctrl', 'Y']} />
+                        <ShortcutRow label="一键智能排版" keys={['悬浮栏 ✨']} />
+                        <ShortcutRow label="AI 智能助手" keys={['点击 AI 图标']} />
                         <ShortcutRow label="帮助中心" keys={['Ctrl', '/']} />
-                        <ShortcutRow label="放映模式" keys={['F11']} />
-                        <div className="pt-4 mt-4 border-t border-slate-100">
+                        <ShortcutRow label="全屏放映演示" keys={['F11']} />
+                        <ShortcutRow label="随机点名转盘" keys={['放映栏 🎯']} />
+                        <ShortcutRow label="放映倒计时" keys={['放映栏 ⏱️']} />
+                        <div className="pt-3 mt-3 border-t border-slate-100">
                           <p className="text-xs text-slate-500 leading-relaxed">
-                            <span className="font-bold text-[var(--accent)]">提示：</span>选中预览区文本可快速触发快捷样式工具栏。支持直接拖拽图片或视频到编辑器中进行排版。
+                            <span className="font-bold text-[var(--accent)]">💡 技巧：</span>选中文本唤起悬浮工具栏可即时使用“一键智能排版”自动修正空格与列表，放映模式下提供画笔圈画与转盘互动功能。
                           </p>
                         </div>
                       </div>
@@ -3217,6 +3310,12 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* --- Student Picker Turntable Modal --- */}
+      <StudentPickerModal 
+        isOpen={showStudentPickerModal} 
+        onClose={() => setShowStudentPickerModal(false)} 
+      />
+
       {/* --- Confirmation Modal --- */}
       <AnimatePresence>
         {confirmModal?.isOpen && (
@@ -3287,9 +3386,20 @@ export default function App() {
 
 // --- Helper Sub-components ---
 
-function QuickTool({ icon, onClick, title }: { icon: React.ReactNode, onClick: () => void, title?: string }) {
+function QuickTool({ icon, onClick, title, isActive, disabled }: { icon: React.ReactNode, onClick: () => void, title?: string, isActive?: boolean, disabled?: boolean }) {
   return (
-    <button onClick={onClick} title={title} className="p-1.5 hover:bg-[var(--bg-secondary)] rounded-lg text-[var(--text-secondary)] hover:text-[var(--accent)] transition-all cursor-pointer">
+    <button 
+      onClick={onClick} 
+      title={title} 
+      disabled={disabled}
+      className={`p-1.5 rounded-lg transition-all ${
+        disabled
+          ? 'opacity-35 cursor-not-allowed text-[var(--text-secondary)]'
+          : isActive 
+            ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 font-bold border border-blue-300/80 shadow-2xs cursor-pointer' 
+            : 'hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--accent)] cursor-pointer'
+      }`}
+    >
       {icon}
     </button>
   );
@@ -3311,7 +3421,7 @@ function ToolbarGroup({ label, children, alignRight = false }: { label: string, 
     <div ref={ref} className="relative">
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className="px-3 py-1.5 hover:bg-[var(--bg-secondary)] rounded-lg text-sm text-[var(--text-secondary)] font-medium transition-colors flex items-center gap-1 cursor-pointer"
+        className="px-3 py-1.5 hover:bg-[var(--bg-secondary)] rounded-lg text-sm text-[var(--text-secondary)] font-medium transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
       >
         {label}
         <ChevronRight size={14} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} />
@@ -3322,7 +3432,7 @@ function ToolbarGroup({ label, children, alignRight = false }: { label: string, 
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 5 }}
-            className={`absolute top-full mt-2 bg-[var(--bg-primary)] border border-[var(--border)] rounded-2xl shadow-2xl overflow-y-auto max-h-[85vh] py-1 z-50 p-1 font-sans ${
+            className={`absolute top-full mt-2 bg-[var(--bg-primary)] border border-[var(--border)] rounded-2xl shadow-2xl overflow-y-auto max-h-[85vh] py-1.5 z-50 p-1.5 font-sans min-w-max whitespace-nowrap ${
               alignRight ? 'right-0 left-auto' : 'left-0'
             }`}
           >
@@ -3338,10 +3448,10 @@ function ToolbarItem({ icon, label, onClick }: { icon: React.ReactNode, label: s
   return (
     <button 
       onClick={onClick}
-      className="w-full text-left px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] rounded-lg flex items-center gap-3 transition-colors cursor-pointer group"
+      className="w-full text-left px-3.5 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] rounded-xl flex items-center gap-3 transition-colors cursor-pointer group whitespace-nowrap min-w-max"
     >
-      <span className="text-[var(--text-secondary)] group-hover:text-[var(--accent)]">{icon}</span>
-      <span>{label}</span>
+      <span className="text-[var(--text-secondary)] group-hover:text-[var(--accent)] shrink-0">{icon}</span>
+      <span className="whitespace-nowrap font-medium flex-1">{label}</span>
     </button>
   );
 }
@@ -3397,45 +3507,74 @@ function PresToolBtn({ active, icon, onClick, label }: { active: boolean, icon: 
   );
 }
 
-// --- 初始内容 ---
+// --- 初始示例模板内容 ---
 const initialMarkdown = `
-# FluxMark 高级编辑器
+# 🌟 欢迎使用 FluxMark 智能文档编辑器
 
-欢迎使用 **FluxMark**。这是一款为您精心打造的 Markdown 创作空间。
+FluxMark 是一款为您精心打造的**全能型 Markdown 创作空间**，融兼**沉浸式写作**、**AI 助手**、**交互式任务清单**、**数学公式**与**全屏放映**功能。
 
-## 🚀 核心优势
-- **全屏合一模式**：打破编辑器与预览的界限，输入即触达。
-- **极致渲染性能**：输入一行，即刻渲染一行，响应速度丝滑。
-- **智能样式覆盖**：选中预览区文字，直接进行二次视觉调整。
-- **数学公式支持**：支持行内公式如 $E = mc^2$ 和块级公式。
-- **多格式导出**：支持 PDF、Word (.docx)、HTML 及高清图片导出。
-- **==文本高亮==**：支持行内高亮标记，核心重点一目了然。
+---
 
-## 🧪 实验性功能
-### LaTeX 公式演示
-你可以输入 \`$E = mc^2$\` 来插入行内公式，或者使用 \`$$\` 包裹块级公式。
+## 🎯 快速体验任务清单 (Task List)
+
+- [x] **开启 FluxMark**：享受极其丝滑的沉浸式排版与实时预览
+- [x] **智能格式排版**：体验快捷工具栏中的 ✨ **一键智能排版** 优化间距
+- [ ] **交互复选框**：直接点击前端方框切换待办任务状态
+- [ ] **AI 大模型助手**：点击右上角 AI 图标唤起智能写作与修改建议
+- [ ] **全屏演示放映**：按 \`F11\` 或点击顶部放映按钮转换为幻灯片展示
+
+---
+
+## 📝 文本排版与格式演示
+
+您可以轻松对文档进行 ==文本重点高亮==、**加粗文本**、*斜体文字*、~删除线~ 以及专业的上标 $X^2$ 和下标 $H_2O$ 处理。
+
+> 💡 **设计哲学**：专注与美感兼备。打破传统编辑器与预览窗口的界限，让创作更加自然流畅。
+
+---
+
+## 📐 数学公式与科学计算 (KaTeX)
+
+支持优雅的行内公式如 $E = mc^2$ 以及复杂的块级数学方程：
 
 $$
-\int_{a}^{b} f(x)dx = F(b) - F(a)
+\int_{-\infty}^{+\infty} e^{-x^2} dx = \sqrt{\pi}
 $$
 
-$y = 4x + 1$
+$$
+\mathbf{A} \mathbf{x} = \lambda \mathbf{x}
+$$
 
-$E = mc^2$
+---
 
-> 在“窗口合一”模式下，您可以获得最接近纸笔书写的纯粹体验。
+## 💻 代码高亮与工程集成
 
-\`\`\`javascript
-// 这是一个演示代码块
-function fluxMark() {
-  console.log("FluxMark 助力您的创作");
-  return {
-    speed: "ultra",
-    style: "mac-minimal"
-  };
+内置多语言语法高亮，支持一键复制代码与智能展示：
+
+\`\`\`typescript
+// FluxMark 示例代码
+interface AppConfig {
+  theme: 'light' | 'dark';
+  aiPowered: boolean;
+  smartFormatting: boolean;
+}
+
+function initFluxMark(config: AppConfig): void {
+  console.log('🚀 FluxMark 编辑器已成功初始化');
 }
 \`\`\`
 
 ---
-_FluxMark - 为了热爱创作的你。_
+
+## 📊 快捷功能对照
+
+| 功能模块 | 对应快捷键 / 入口 | 作用说明 |
+| :--- | :--- | :--- |
+| **撤销 / 重做** | \`Ctrl + Z\` / \`Ctrl + Y\` | 快速恢复与重做历史修改 |
+| **一键智能排版** | 快速悬浮工具栏 ✨ | 自动消除多余空格与格式规范 |
+| **任务清单** | \`Ctrl + Shift + 9\` | 快速插入可交互的勾选框清单 |
+| **AI 写作助手** | 右上角 AI 按钮 | 调用大模型辅助生成与润色 |
+
+---
+_FluxMark - 灵感流淌，极致表达。_
 `;

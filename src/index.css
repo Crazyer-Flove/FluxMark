@@ -90,9 +90,67 @@
 .prose-custom h2, .ProseMirror h2 { @apply text-2xl font-bold mb-4 mt-6 border-b pb-1 border-[var(--border)]; }
 .prose-custom h3, .ProseMirror h3 { @apply text-xl font-bold mb-3 mt-5; }
 .prose-custom p, .ProseMirror p { @apply mb-4; }
-.prose-custom ul, .ProseMirror ul { @apply mb-4 pl-6 list-disc; }
+.prose-custom ul:not([data-type="taskList"]), .ProseMirror ul:not([data-type="taskList"]) { @apply mb-4 pl-6 list-disc; }
 .prose-custom ol, .ProseMirror ol { @apply mb-4 pl-6 list-decimal; }
-.prose-custom li, .ProseMirror li { @apply mb-1; }
+.prose-custom li:not([data-type="taskItem"]), .ProseMirror li:not([data-type="taskItem"]) { @apply mb-1; }
+
+/* Tiptap Task List Styles */
+ul[data-type="taskList"], .ProseMirror ul[data-type="taskList"] {
+  list-style-type: none !important;
+  padding-left: 0 !important;
+  margin-bottom: 1rem;
+}
+
+ul[data-type="taskList"] li[data-type="taskItem"],
+.ProseMirror ul[data-type="taskList"] li[data-type="taskItem"] {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+  list-style-type: none !important;
+}
+
+ul[data-type="taskList"] li[data-type="taskItem"] > label,
+.ProseMirror ul[data-type="taskList"] li[data-type="taskItem"] > label {
+  flex: 0 0 auto;
+  user-select: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  margin-top: 0.3rem;
+}
+
+ul[data-type="taskList"] li[data-type="taskItem"] > label input[type="checkbox"],
+.ProseMirror ul[data-type="taskList"] li[data-type="taskItem"] > label input[type="checkbox"] {
+  cursor: pointer;
+  width: 1.15rem;
+  height: 1.15rem;
+  accent-color: var(--accent);
+  border-radius: 0.25rem;
+  transition: transform 0.15s ease;
+}
+
+ul[data-type="taskList"] li[data-type="taskItem"] > label input[type="checkbox"]:hover,
+.ProseMirror ul[data-type="taskList"] li[data-type="taskItem"] > label input[type="checkbox"]:hover {
+  transform: scale(1.1);
+}
+
+ul[data-type="taskList"] li[data-type="taskItem"] > div,
+.ProseMirror ul[data-type="taskList"] li[data-type="taskItem"] > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+ul[data-type="taskList"] li[data-type="taskItem"] > div > p,
+.ProseMirror ul[data-type="taskList"] li[data-type="taskItem"] > div > p {
+  margin-bottom: 0 !important;
+}
+
+ul[data-type="taskList"] li[data-type="taskItem"][data-checked="true"] > div,
+.ProseMirror ul[data-type="taskList"] li[data-type="taskItem"][data-checked="true"] > div {
+  text-decoration: line-through;
+  opacity: 0.65;
+}
 .prose-custom code:not(pre code), .ProseMirror code:not(pre code) { 
   @apply bg-blue-50/80 px-1.5 py-0.5 rounded text-sm font-mono text-blue-700 border border-blue-100; 
 }

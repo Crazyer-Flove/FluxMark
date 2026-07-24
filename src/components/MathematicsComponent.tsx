@@ -35,7 +35,9 @@ export const MathematicsComponent = (props: any) => {
 
   const handleInputBlur = () => {
     setIsEditing(false);
-    updateAttributes({ latex: inputValue });
+    queueMicrotask(() => {
+      updateAttributes({ latex: inputValue });
+    });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

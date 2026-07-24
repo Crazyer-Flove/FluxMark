@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Send, Sparkles, Copy, Check, FileDown, Trash2, X, 
-  MessageSquare, Settings, Key, Globe, Cpu, RotateCcw, 
-  AlertCircle, Sliders
+  MessageSquare, Settings, Key, Globe, Cpu, 
+  AlertCircle, Sliders, ShieldCheck, Lock, Eye, EyeOff, 
+  LogOut, CheckCircle2, RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Editor } from '@tiptap/react';
@@ -22,6 +23,8 @@ interface PresetProvider {
   baseUrl: string;
   defaultModel: string;
 }
+
+type StorageMode = 'session' | 'local';
 
 const PRESET_PROVIDERS: PresetProvider[] = [
   {
@@ -50,39 +53,92 @@ const PRESET_PROVIDERS: PresetProvider[] = [
     defaultModel: 'moonshot-v1-8k',
   },
   {
+    name: '智谱 BigModel',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    defaultModel: 'glm-4-flash',
+  },
+  {
     name: 'Ollama 本地模型',
     baseUrl: 'http://localhost:11434/v1',
     defaultModel: 'llama3',
   },
 ];
 
+// Helper to get or generate current tab session device ID
+const getSessionDeviceId = (): string => {
+  try {
+    let sessionId = sessionStorage.getItem('flux_ai_session_id');
+    if (!sessionId) {
+      sessionId = 'DEV-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+      sessionStorage.setItem('flux_ai_session_id', sessionId);
+    }
+    return sessionId;
+  } catch {
+    return 'DEV-LOCAL-SESSION';
+  }
+};
+
 export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
-  // Config state stored in localStorage
+  const [deviceId] = useState<string>(getSessionDeviceId);
+
+  // Storage mode: 'session' (current browser tab session only) or 'local' (this device browser storage)
+  const [storageMode, setStorageMode] = useState<StorageMode>(() => {
+    try {
+      return (localStorage.getItem('flux_ai_storage_mode') as StorageMode) || 'session';
+    } catch {
+      return 'session';
+    }
+  });
+
+  // Helper to read item adhering to device storage mode
+  const readConfigValue = (key: string, defaultValue: string = ''): string => {
+    try {
+      // 1. Session storage has priority for active device session
+      const sessionVal = sessionStorage.getItem(key);
+      if (sessionVal !== null) return sessionVal;
+
+      // 2. If storageMode is 'local', allow fallback to localStorage
+      const mode = localStorage.getItem('flux_ai_storage_mode') || 'session';
+      if (mode === 'local') {
+        return localStorage.getItem(key) || defaultValue;
+      }
+    } catch (e) {
+      console.warn('Storage access warning:', e);
+    }
+    return defaultValue;
+  };
+
+  // Config states
   const [baseUrl, setBaseUrl] = useState<string>(() => {
-    return localStorage.getItem('flux_ai_baseUrl') || 'https://api.deepseek.com/v1';
+    return readConfigValue('flux_ai_baseUrl', 'https://api.deepseek.com/v1');
   });
   const [apiKey, setApiKey] = useState<string>(() => {
-    return localStorage.getItem('flux_ai_apiKey') || '';
+    return readConfigValue('flux_ai_apiKey', '');
   });
   const [modelName, setModelName] = useState<string>(() => {
-    return localStorage.getItem('flux_ai_model') || 'deepseek-chat';
+    return readConfigValue('flux_ai_model', 'deepseek-chat');
   });
   const [systemPrompt, setSystemPrompt] = useState<string>(() => {
-    return localStorage.getItem('flux_ai_system') || 
-      '你是一个专业的 Markdown 写作助手，正在帮助用户在编辑器中进行创作。你可以直接生成 Markdown 内容，或者为用户的内容提供修改意见。请保持友好、专业且简洁。';
+    return readConfigValue(
+      'flux_ai_system',
+      '你是一个专业的 Markdown 写作助手，正在帮助用户在编辑器中进行创作。你可以直接生成 Markdown 内容，或者为用户的内容提供修改意见。请保持友好、专业且简洁。'
+    );
   });
 
   // UI state
   const [showSettings, setShowSettings] = useState<boolean>(() => {
-    // Show settings by default if API key or base URL is empty
-    return !localStorage.getItem('flux_ai_apiKey') && !localStorage.getItem('flux_ai_baseUrl');
+    // Show settings by default if no API key is configured
+    return !readConfigValue('flux_ai_apiKey');
   });
+  const [showApiKey, setShowApiKey] = useState<boolean>(false);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -92,14 +148,77 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
     }
   }, [messages, isLoading, errorMessage]);
 
-  // Save config to localStorage
+  // Save config based on selected device storage mode
   const handleSaveSettings = () => {
-    localStorage.setItem('flux_ai_baseUrl', baseUrl.trim());
-    localStorage.setItem('flux_ai_apiKey', apiKey.trim());
-    localStorage.setItem('flux_ai_model', modelName.trim());
-    localStorage.setItem('flux_ai_system', systemPrompt.trim());
-    setShowSettings(false);
+    const trimmedBaseUrl = baseUrl.trim();
+    const trimmedApiKey = apiKey.trim();
+    const trimmedModel = modelName.trim();
+    const trimmedSystem = systemPrompt.trim();
+
+    try {
+      localStorage.setItem('flux_ai_storage_mode', storageMode);
+
+      if (storageMode === 'session') {
+        // Store in sessionStorage for current browser tab session only
+        sessionStorage.setItem('flux_ai_baseUrl', trimmedBaseUrl);
+        sessionStorage.setItem('flux_ai_apiKey', trimmedApiKey);
+        sessionStorage.setItem('flux_ai_model', trimmedModel);
+        sessionStorage.setItem('flux_ai_system', trimmedSystem);
+
+        // Wipe from localStorage so no leftover credentials remain for future users
+        localStorage.removeItem('flux_ai_baseUrl');
+        localStorage.removeItem('flux_ai_apiKey');
+        localStorage.removeItem('flux_ai_model');
+        localStorage.removeItem('flux_ai_system');
+      } else {
+        // Store in localStorage for persistent use on this device
+        localStorage.setItem('flux_ai_baseUrl', trimmedBaseUrl);
+        localStorage.setItem('flux_ai_apiKey', trimmedApiKey);
+        localStorage.setItem('flux_ai_model', trimmedModel);
+        localStorage.setItem('flux_ai_system', trimmedSystem);
+
+        sessionStorage.setItem('flux_ai_baseUrl', trimmedBaseUrl);
+        sessionStorage.setItem('flux_ai_apiKey', trimmedApiKey);
+        sessionStorage.setItem('flux_ai_model', trimmedModel);
+        sessionStorage.setItem('flux_ai_system', trimmedSystem);
+      }
+
+      setShowSettings(false);
+      setErrorMessage(null);
+      setSuccessMessage('配置已更新！凭证已安全存储在当前设备/会话中。');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (e) {
+      console.error('Failed to save AI config:', e);
+      setErrorMessage('无法写入浏览器本地存储，请检查隐私模式设置。');
+    }
+  };
+
+  // Clear/Logout API credentials
+  const handleClearCredentials = () => {
+    try {
+      sessionStorage.removeItem('flux_ai_baseUrl');
+      sessionStorage.removeItem('flux_ai_apiKey');
+      sessionStorage.removeItem('flux_ai_model');
+      sessionStorage.removeItem('flux_ai_system');
+
+      localStorage.removeItem('flux_ai_baseUrl');
+      localStorage.removeItem('flux_ai_apiKey');
+      localStorage.removeItem('flux_ai_model');
+      localStorage.removeItem('flux_ai_system');
+      localStorage.removeItem('flux_ai_storage_mode');
+    } catch (e) {
+      console.warn('Clear storage error:', e);
+    }
+
+    setApiKey('');
+    setBaseUrl('https://api.deepseek.com/v1');
+    setModelName('deepseek-chat');
+    setSystemPrompt('你是一个专业的 Markdown 写作助手，正在帮助用户在编辑器中进行创作。你可以直接生成 Markdown 内容，或者为用户的内容提供修改意见。请保持友好、专业且简洁。');
+    setStorageMode('session');
     setErrorMessage(null);
+    setSuccessMessage('已清除所有 API Key 登录信息与本地缓存！');
+    setTimeout(() => setSuccessMessage(null), 3000);
+    setShowSettings(true);
   };
 
   const applyPreset = (preset: PresetProvider) => {
@@ -118,6 +237,55 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
     return url;
   };
 
+  // Test connection to API
+  const handleTestConnection = async () => {
+    const trimmedBaseUrl = baseUrl.trim();
+    const trimmedApiKey = apiKey.trim();
+
+    if (!trimmedBaseUrl) {
+      setErrorMessage('请填写 API 服务地址（Base URL）');
+      return;
+    }
+
+    setIsTesting(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const targetUrl = constructApiUrl(trimmedBaseUrl);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (trimmedApiKey) headers['Authorization'] = `Bearer ${trimmedApiKey}`;
+
+      const response = await fetch(targetUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: modelName.trim() || 'deepseek-chat',
+          messages: [{ role: 'user', content: 'Hi' }],
+          max_tokens: 5,
+        }),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        let parsed = errText;
+        try {
+          const jsonErr = JSON.parse(errText);
+          parsed = jsonErr.error?.message || jsonErr.message || errText;
+        } catch {
+          // ignore
+        }
+        throw new Error(`测试连通失败 (HTTP ${response.status}): ${parsed}`);
+      }
+
+      setSuccessMessage('✅ 连通测试成功！API 服务地址与 Key 可以正常使用。');
+    } catch (err: any) {
+      setErrorMessage(err.message || 'API 连通测试失败，请检查 Base URL 与 API Key。');
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
@@ -130,10 +298,9 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
       return;
     }
 
-    // Check if provider is not a local Ollama service and missing API Key
     const isLocalOllama = trimmedBaseUrl.includes('localhost') || trimmedBaseUrl.includes('127.0.0.1');
     if (!trimmedApiKey && !isLocalOllama) {
-      setErrorMessage('未检测到 API Key！请先在设置中填入您的 API Key（例如 DeepSeek、OpenAI 或 硅基流动 等平台的密钥）。');
+      setErrorMessage('未检测到 API Key！请先在设置中填入您的 API Key。');
       setShowSettings(true);
       return;
     }
@@ -236,9 +403,14 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
           <Sparkles size={18} />
           <div className="flex flex-col">
             <span className="text-sm">Flux AI 助手</span>
-            <span className="text-[10px] text-slate-400 font-normal truncate max-w-[150px]">
-              {modelName || '自定义模型'}
-            </span>
+            <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-normal">
+              <span className="truncate max-w-[100px]">{modelName || '自定义模型'}</span>
+              <span className="text-slate-300">•</span>
+              <span className="text-emerald-600 dark:text-emerald-400 font-mono flex items-center gap-0.5">
+                <Lock size={9} />
+                {storageMode === 'session' ? '会话模式' : '本端保存'}
+              </span>
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -249,14 +421,14 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
                 ? 'bg-[var(--accent)] text-white' 
                 : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600'
             }`}
-            title="配置 API 地址与模型"
+            title="配置 API 地址与密钥"
           >
             <Settings size={16} />
           </button>
           <button 
             onClick={clearChat}
             className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
-            title="清空对话"
+            title="清空对话历史"
           >
             <Trash2 size={16} />
           </button>
@@ -285,7 +457,7 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
                 <div className="flex items-center justify-between pb-2 border-b border-[var(--border)]">
                   <div className="flex items-center gap-2 font-semibold text-sm text-[var(--text-primary)]">
                     <Sliders size={16} className="text-[var(--accent)]" />
-                    <span>大模型 API 自定义配置</span>
+                    <span>大模型 API & 设备隐私配置</span>
                   </div>
                   <button 
                     onClick={() => setShowSettings(false)}
@@ -295,18 +467,79 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
                   </button>
                 </div>
 
+                {/* Device & Privacy Badge */}
+                <div className="p-2.5 bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200/80 dark:border-blue-800/60 rounded-xl text-xs space-y-1">
+                  <div className="flex items-center justify-between text-blue-700 dark:text-blue-300 font-bold">
+                    <span className="flex items-center gap-1">
+                      <ShieldCheck size={14} />
+                      设备安全与会话隔离
+                    </span>
+                    <span className="font-mono text-[10px] bg-blue-100 dark:bg-blue-900 px-1.5 py-0.5 rounded text-blue-800 dark:text-blue-200">
+                      {deviceId}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-snug">
+                    您的 API Key 仅保留在您的浏览器端，绝不上传任何云端服务器。跨用户或换设备访问不会残留您的 Key。
+                  </p>
+                </div>
+
+                {/* Storage Mode Selection */}
+                <div>
+                  <label className="text-xs font-bold text-[var(--text-primary)] mb-1.5 block flex items-center gap-1">
+                    <Lock size={13} className="text-[var(--accent)]" />
+                    凭证保存模式 (Storage Scope)：
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setStorageMode('session')}
+                      className={`p-2 rounded-xl border text-left transition-all cursor-pointer ${
+                        storageMode === 'session'
+                          ? 'border-blue-500 bg-blue-50/80 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-bold shadow-2xs'
+                          : 'border-[var(--border)] bg-[var(--bg-secondary)] text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      <div className="text-xs flex items-center justify-between">
+                        <span>仅单次会话 (推荐)</span>
+                        {storageMode === 'session' && <CheckCircle2 size={13} />}
+                      </div>
+                      <p className="text-[10px] opacity-75 font-normal mt-0.5">
+                        关闭标签页或换账号登录后自动失效，彻底防残留
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setStorageMode('local')}
+                      className={`p-2 rounded-xl border text-left transition-all cursor-pointer ${
+                        storageMode === 'local'
+                          ? 'border-blue-500 bg-blue-50/80 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-bold shadow-2xs'
+                          : 'border-[var(--border)] bg-[var(--bg-secondary)] text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      <div className="text-xs flex items-center justify-between">
+                        <span>本端设备保存</span>
+                        {storageMode === 'local' && <CheckCircle2 size={13} />}
+                      </div>
+                      <p className="text-[10px] opacity-75 font-normal mt-0.5">
+                        仅在本端浏览器长期保留，方便个人专属设备使用
+                      </p>
+                    </button>
+                  </div>
+                </div>
+
                 {/* Quick Presets */}
                 <div>
                   <label className="text-xs font-medium text-slate-500 block mb-1.5">
-                    预设服务（快捷填充）：
+                    预设服务商（点击快速填充地址与模型）：
                   </label>
-                  <div className="grid grid-cols-2 gap-1.5">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                     {PRESET_PROVIDERS.map((preset, idx) => (
                       <button
                         key={idx}
                         type="button"
                         onClick={() => applyPreset(preset)}
-                        className="text-left px-2 py-1.5 rounded border border-[var(--border)] bg-[var(--bg-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] text-xs transition-all text-slate-600 truncate"
+                        className="text-left px-2 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] text-xs transition-all text-slate-600 dark:text-slate-300 truncate cursor-pointer"
                       >
                         {preset.name}
                       </button>
@@ -316,7 +549,7 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
 
                 {/* Base URL */}
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                  <label className="text-xs font-medium text-slate-600 dark:text-slate-300 flex items-center gap-1">
                     <Globe size={13} className="text-slate-400" />
                     <span>API 服务地址 (Base URL)</span>
                   </label>
@@ -327,34 +560,38 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
                     placeholder="https://api.openai.com/v1"
                     className="w-full bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--accent)] outline-none"
                   />
-                  <p className="text-[10px] text-slate-400">
-                    支持 OpenAI 标准兼容接口 (如 DeepSeek, SiliconFlow, OpenRouter, Ollama 等)
-                  </p>
                 </div>
 
                 {/* API Key */}
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                    <Key size={13} className="text-slate-400" />
-                    <span>API Key</span>
+                  <label className="text-xs font-medium text-slate-600 dark:text-slate-300 flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <Key size={13} className="text-slate-400" />
+                      <span>API 密钥 (API Key)</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5 cursor-pointer"
+                    >
+                      {showApiKey ? <EyeOff size={12} /> : <Eye size={12} />}
+                      {showApiKey ? '隐藏明文' : '显示明文'}
+                    </button>
                   </label>
                   <input
-                    type="password"
+                    type={showApiKey ? 'text' : 'password'}
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     placeholder="sk-..."
-                    className="w-full bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--accent)] outline-none"
+                    className="w-full bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--accent)] outline-none font-mono"
                   />
-                  <p className="text-[10px] text-slate-400">
-                    本地 Ollama 或无鉴权服务可留空
-                  </p>
                 </div>
 
                 {/* Model Name */}
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                  <label className="text-xs font-medium text-slate-600 dark:text-slate-300 flex items-center gap-1">
                     <Cpu size={13} className="text-slate-400" />
-                    <span>模型名称 (Model)</span>
+                    <span>模型名称 (Model Name)</span>
                   </label>
                   <input
                     type="text"
@@ -367,7 +604,7 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
 
                 {/* System Prompt */}
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-600 block">
+                  <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block">
                     系统提示词 (System Instruction)
                   </label>
                   <textarea
@@ -379,12 +616,35 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
                 </div>
               </div>
 
-              <div className="pt-4 border-t border-[var(--border)] mt-4">
+              {/* Action Toolbar */}
+              <div className="pt-3 border-t border-[var(--border)] mt-4 space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleTestConnection}
+                    disabled={isTesting}
+                    className="bg-[var(--bg-secondary)] border border-[var(--border)] hover:bg-[var(--bg-primary)] text-[var(--text-primary)] text-xs py-2 rounded-xl font-medium transition-all flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <RefreshCw size={12} className={isTesting ? 'animate-spin' : ''} />
+                    {isTesting ? '测试中...' : '测试连通性'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveSettings}
+                    className="bg-[var(--accent)] text-white text-xs py-2 rounded-xl font-bold shadow-md hover:opacity-90 active:scale-98 transition-all cursor-pointer"
+                  >
+                    保存配置并开启
+                  </button>
+                </div>
+
                 <button
-                  onClick={handleSaveSettings}
-                  className="w-full bg-[var(--accent)] text-white text-xs py-2.5 rounded-lg font-medium shadow-md hover:opacity-90 active:scale-98 transition-all"
+                  type="button"
+                  onClick={handleClearCredentials}
+                  className="w-full text-center py-1.5 text-xs text-red-500 hover:text-red-700 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer"
                 >
-                  保存配置并开始对话
+                  <LogOut size={13} />
+                  一键清除 / 退出本端 API 登录凭证
                 </button>
               </div>
             </motion.div>
@@ -397,17 +657,17 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
             <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-3 opacity-70 my-auto py-12">
               <MessageSquare size={40} className="text-[var(--accent)] opacity-60" />
               <div className="text-center space-y-1 px-4">
-                <p className="text-xs font-medium text-[var(--text-primary)]">Flux AI 自定义模型助手</p>
+                <p className="text-xs font-medium text-[var(--text-primary)]">Flux AI 大模型助手</p>
                 <p className="text-[11px] text-slate-400">
                   当前模型：<span className="font-mono text-[var(--accent)]">{modelName || '未设置'}</span>
                 </p>
                 <p className="text-[10px] text-slate-400 pt-2">
-                  支持调用任意 OpenAI 兼容接口（如 DeepSeek, GPT-4, Qwen 等）协助 Markdown 创作
+                  调用您自己的 API Key 辅助创作。凭证隔离保护，跨用户绝不残留。
                 </p>
               </div>
               <button
                 onClick={() => setShowSettings(true)}
-                className="text-xs px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] hover:text-[var(--accent)] transition-colors flex items-center gap-1.5"
+                className="text-xs px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] hover:text-[var(--accent)] transition-colors flex items-center gap-1.5 cursor-pointer"
               >
                 <Settings size={13} />
                 <span>修改 API 配置</span>
@@ -428,14 +688,14 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
                 <div className="flex gap-2 mt-1.5 ml-1">
                   <button 
                     onClick={() => copyToClipboard(msg.content, i)}
-                    className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-[var(--accent)] transition-colors"
+                    className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-[var(--accent)] transition-colors cursor-pointer"
                   >
                     {copiedIndex === i ? <Check size={11} /> : <Copy size={11} />}
                     {copiedIndex === i ? '已复制' : '复制'}
                   </button>
                   <button 
                     onClick={() => insertToEditor(msg.content)}
-                    className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-[var(--accent)] transition-colors"
+                    className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-[var(--accent)] transition-colors cursor-pointer"
                   >
                     <FileDown size={11} />
                     插入文档
@@ -449,7 +709,7 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
             <div className="flex items-start">
               <div className="bg-[var(--bg-secondary)] border border-[var(--border)] p-3 rounded-2xl">
                 <div className="flex gap-1.5 items-center">
-                  <span className="text-[10px] text-slate-400 mr-1">生成中</span>
+                  <span className="text-[10px] text-slate-400 mr-1">思考生成中</span>
                   <motion.div animate={{ opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-[var(--accent)] rounded-full" />
                   <motion.div animate={{ opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1.5 h-1.5 bg-[var(--accent)] rounded-full" />
                   <motion.div animate={{ opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1.5 h-1.5 bg-[var(--accent)] rounded-full" />
@@ -458,15 +718,22 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
             </div>
           )}
 
+          {successMessage && (
+            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-2">
+              <CheckCircle2 size={16} className="shrink-0" />
+              <span>{successMessage}</span>
+            </div>
+          )}
+
           {errorMessage && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2 text-red-600 text-xs">
+            <div className="p-3 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-xl flex items-start gap-2 text-red-600 dark:text-red-300 text-xs">
               <AlertCircle size={16} className="shrink-0 mt-0.5" />
               <div className="flex-1 space-y-1">
-                <p className="font-medium">请求未完成</p>
+                <p className="font-bold">请求未完成</p>
                 <p className="text-[11px] opacity-90">{errorMessage}</p>
                 <button
                   onClick={() => setShowSettings(true)}
-                  className="text-[10px] underline hover:text-red-800 pt-1 block"
+                  className="text-[10px] underline hover:opacity-80 pt-1 block cursor-pointer"
                 >
                   去检查 API 地址与密钥配置 →
                 </button>
@@ -496,18 +763,21 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
             disabled={isLoading || !input.trim()}
             className={`absolute right-2.5 bottom-2.5 p-1.5 rounded-lg transition-all ${
               isLoading || !input.trim() 
-                ? 'text-slate-300 bg-slate-100 cursor-not-allowed' 
-                : 'bg-[var(--accent)] text-white shadow-md active:scale-95'
+                ? 'text-slate-300 bg-slate-100 dark:bg-slate-800 cursor-not-allowed' 
+                : 'bg-[var(--accent)] text-white shadow-md active:scale-95 cursor-pointer'
             }`}
           >
             <Send size={15} />
           </button>
         </div>
         <div className="mt-1.5 flex items-center justify-between text-[10px] text-slate-400 px-1">
-          <span>模式：自定义 API / 大模型</span>
+          <span className="flex items-center gap-1">
+            <Lock size={10} className="text-emerald-500" />
+            {storageMode === 'session' ? '会话单次模式 (无残留)' : '本端持久保存模式'}
+          </span>
           <button 
             onClick={() => setShowSettings(true)}
-            className="hover:text-[var(--accent)] transition-colors flex items-center gap-0.5"
+            className="hover:text-[var(--accent)] transition-colors flex items-center gap-0.5 cursor-pointer"
           >
             <span>{modelName || '设置 API'}</span>
             <Settings size={10} />

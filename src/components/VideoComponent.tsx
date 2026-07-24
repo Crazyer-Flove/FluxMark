@@ -35,9 +35,12 @@ export const VideoComponent = ({ node, updateAttributes, deleteNode }: any) => {
 
   const handleLoadedMetadata = () => {
     if (videoRef.current) {
-      setDuration(videoRef.current.duration);
+      const dur = videoRef.current.duration;
+      setDuration(dur);
       if (endPos === null) {
-        updateAttributes({ endPos: videoRef.current.duration });
+        queueMicrotask(() => {
+          updateAttributes({ endPos: dur });
+        });
       }
     }
   };

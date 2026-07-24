@@ -7,13 +7,13 @@ export const CustomBlockquote = Blockquote.extend({
     return {
       ...this.parent?.(),
       spacing: {
-        default: 'loose',
+        default: 'compact',
         parseHTML: (element) => {
-          return element.getAttribute('data-spacing') || 'loose';
+          return element.getAttribute('data-spacing') || 'compact';
         },
         renderHTML: (attributes) => {
           return {
-            'data-spacing': attributes.spacing || 'loose',
+            'data-spacing': attributes.spacing || 'compact',
           };
         },
       },
@@ -24,3 +24,4 @@ export const CustomBlockquote = Blockquote.extend({
     return ReactNodeViewRenderer(BlockquoteComponent);
   },
 });
+
