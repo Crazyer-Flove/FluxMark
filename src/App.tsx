@@ -48,7 +48,10 @@ import { DocumentOutlineStats } from './components/DocumentOutlineStats';
 import { HighlightPopover } from './components/HighlightPopover';
 import { StudentPickerModal } from './components/StudentPickerModal';
 import { ImageCropperModal } from './components/ImageCropperModal';
-import { Sparkles as SparklesIcon } from 'lucide-react';
+import { PrivacyModal } from './components/PrivacyModal';
+import { SponsorModal } from './components/SponsorModal';
+import { executeSmartFormat } from './utils/smartFormat';
+import { Sparkles as SparklesIcon, ShieldCheck as ShieldCheckIcon, Heart as HeartIcon } from 'lucide-react';
 
 const lowlight = createLowlight(common);
 
@@ -276,6 +279,8 @@ export default function App() {
   const [selection, setSelection] = useState<SelectionState>({ top: 0, left: 0, visible: false, text: '', range: null });
   const [showAIChat, setShowAIChat] = useState<boolean>(false);
   const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState<boolean>(false);
+  const [showSponsorModal, setShowSponsorModal] = useState<boolean>(false);
   const [helpTab, setHelpTab] = useState<'tutorial' | 'shortcuts'>('tutorial');
   const [cropImage, setCropImage] = useState<string | null>(null);
   const [showHighlightPopover, setShowHighlightPopover] = useState<boolean>(false);
@@ -880,84 +885,7 @@ export default function App() {
 
   // 智能排版函数：清理冗余空格、规范中英文/数字盘古间距、处理空行与列表样式
   const handleSmartFormat = () => {
-    if (!editor) return;
-
-    try {
-      const html = editor.getHTML();
-      if (!html || html === '<p></p>') return;
-
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
-
-      // 递归处理文本节点
-      const processTextNodes = (node: Node) => {
-        if (node.nodeType === Node.TEXT_NODE) {
-          let text = node.textContent || '';
-          if (!text) return;
-
-          // 1. 中英文及数字之间自动规范增加空格 (盘古排版)
-          text = text.replace(/([\u4e00-\u9fa5\u3040-\u30ff])([A-Za-z0-9])/g, '$1 $2');
-          text = text.replace(/([A-Za-z0-9])([\u4e00-\u9fa5\u3040-\u30ff])/g, '$1 $2');
-
-          // 2. 修正连续的多余普通空格
-          text = text.replace(/[ \t]{2,}/g, ' ');
-
-          // 3. 规范中文全角标点两侧的冗余空格
-          text = text.replace(/\s*([，。！？：；“”‘’（）《》【】])\s*/g, '$1');
-
-          // 4. 英文标点后面保留规范单空格
-          text = text.replace(/([a-zA-Z0-9]),([a-zA-Z])/g, '$1, $2');
-          text = text.replace(/([a-zA-Z0-9]):([a-zA-Z])/g, '$1: $2');
-
-          node.textContent = text;
-        } else {
-          const el = node as HTMLElement;
-          // 跳过代码块与数学公式节点
-          if (
-            node.nodeName === 'PRE' || 
-            node.nodeName === 'CODE' || 
-            el.classList?.contains('katex') || 
-            el.getAttribute?.('data-type') === 'mathInline'
-          ) {
-            return;
-          }
-          node.childNodes.forEach(processTextNodes);
-        }
-      };
-
-      processTextNodes(doc.body);
-
-      // 清理超过 1 行的连续空段落
-      const paragraphs = Array.from(doc.body.querySelectorAll('p'));
-      let emptyCount = 0;
-      paragraphs.forEach((p) => {
-        const text = p.textContent?.trim() || '';
-        const hasMedia = p.querySelector('img, video, iframe, svg, input');
-        if (!text && !hasMedia && p.children.length === 0) {
-          emptyCount++;
-          if (emptyCount > 1) {
-            p.remove();
-          }
-        } else {
-          emptyCount = 0;
-        }
-      });
-
-      // 清理无内容的空白列表项
-      doc.body.querySelectorAll('li').forEach(li => {
-        if (!li.textContent?.trim() && li.children.length === 0) {
-          li.remove();
-        }
-      });
-
-      const formattedHtml = doc.body.innerHTML;
-      editor.commands.setContent(formattedHtml);
-      editor.commands.focus();
-      showToast('✨ 已完成文档智能格式重排与排版优化！');
-    } catch (e) {
-      console.error('Smart format error:', e);
-      showToast('智能排版处理遇到微小异常，请重试');
-    }
+    executeSmartFormat(editor, showToast);
   };
 
   // 文件操作
@@ -1191,18 +1119,57 @@ export default function App() {
     saveAsFile();
   };
 
-  // 快捷键监听：Ctrl+S (保存) & Ctrl+Shift+S (另存为)
+  // 综合键盘快捷键监听
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+
+      // Ctrl + S (保存) / Ctrl + Shift + S (另存为)
+      if (isCtrlOrMeta && e.key.toLowerCase() === 's') {
         e.preventDefault();
         if (e.shiftKey) {
           saveAsFile();
         } else {
           saveFile();
         }
+        return;
+      }
+
+      // Ctrl + O (打开本地文件)
+      if (isCtrlOrMeta && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        fileInputRef.current?.click();
+        return;
+      }
+
+      // Ctrl + Alt + N (新建空白文档)
+      if (isCtrlOrMeta && e.altKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        createNewFile();
+        return;
+      }
+
+      // Ctrl + / (切换帮助与指南弹窗)
+      if (isCtrlOrMeta && e.key === '/') {
+        e.preventDefault();
+        setShowHelpModal(prev => !prev);
+        return;
+      }
+
+      // Escape 键退出各项 Modal 弹窗与浮窗
+      if (e.key === 'Escape') {
+        setShowHelpModal(false);
+        setShowPrivacyModal(false);
+        setShowSponsorModal(false);
+        setShowCountdownModal(false);
+        setShowStudentPickerModal(false);
+        setConfirmModal(null);
+        setShowSelectionHighlightPopover(false);
+        setShowHighlightPopover(false);
+        setCropImage(null);
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [editor, currentFileHandle, docName]);
@@ -1210,10 +1177,16 @@ export default function App() {
   // 导出操作
   const exportMarkdown = () => {
     if (!editor) return;
-    const markdownOutput = (editor.storage as any).markdown?.getMarkdown() || '';
-    const blob = new Blob([markdownOutput], { type: 'text/markdown;charset=utf-8' });
-    const filename = docName.endsWith('.md') ? docName : `${docName}.md`;
-    saveAs(blob, filename);
+    try {
+      const markdownOutput = (editor.storage as any).markdown?.getMarkdown() || '';
+      const blob = new Blob([markdownOutput], { type: 'text/markdown;charset=utf-8' });
+      const filename = docName.endsWith('.md') ? docName : `${docName}.md`;
+      saveAs(blob, filename);
+      showToast('📄 Markdown 文件导出成功！');
+    } catch (e) {
+      console.error('Export markdown failed:', e);
+      showToast('导出 Markdown 失败');
+    }
   };
 
   const exportPDF = async () => {
@@ -1225,16 +1198,15 @@ export default function App() {
     const captureEl = (editorEl.closest('.max-w-4xl') || editorEl.parentElement) as HTMLElement;
     if (!captureEl) return;
 
+    const originalTransform = captureEl.style.transform;
+    const originalZoom = captureEl.style.zoom;
+    const originalWidth = captureEl.style.width;
+    const originalMaxWidth = captureEl.style.maxWidth;
+    const originalHeight = captureEl.style.height;
+    const originalOverflow = captureEl.style.overflow;
+
     try {
-      const originalTransform = captureEl.style.transform;
-      const originalZoom = captureEl.style.zoom;
-      const originalWidth = captureEl.style.width;
-      const originalMaxWidth = captureEl.style.maxWidth;
-      const originalHeight = captureEl.style.height;
-      const originalOverflow = captureEl.style.overflow;
-      
-      // Ensure we capture the full content height
-      const fullHeight = captureEl.scrollHeight;
+      showToast('⏳ 正在生成高分辨率 PDF，请稍候...');
       
       captureEl.style.transform = 'none';
       captureEl.style.zoom = '1';
@@ -1259,14 +1231,6 @@ export default function App() {
         }
       });
 
-      // Restore
-      captureEl.style.transform = originalTransform;
-      captureEl.style.zoom = originalZoom;
-      captureEl.style.width = originalWidth;
-      captureEl.style.maxWidth = originalMaxWidth;
-      captureEl.style.height = originalHeight;
-      captureEl.style.overflow = originalOverflow;
-
       const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF('p', 'mm', 'a4');
       
@@ -1290,8 +1254,17 @@ export default function App() {
       }
 
       pdf.save(`fluxmark-${Date.now()}.pdf`);
+      showToast('📄 PDF 文档导出成功！');
     } catch (err) {
       console.error('PDF export failed', err);
+      showToast('PDF 导出生成失败，请稍后重试');
+    } finally {
+      captureEl.style.transform = originalTransform;
+      captureEl.style.zoom = originalZoom;
+      captureEl.style.width = originalWidth;
+      captureEl.style.maxWidth = originalMaxWidth;
+      captureEl.style.height = originalHeight;
+      captureEl.style.overflow = originalOverflow;
     }
   };
 
@@ -1301,12 +1274,13 @@ export default function App() {
     const captureEl = (editorEl.closest('.max-w-4xl') || editorEl.parentElement) as HTMLElement;
     if (!captureEl) return;
 
+    const originalTransform = captureEl.style.transform;
+    const originalZoom = captureEl.style.zoom;
+    const originalHeight = captureEl.style.height;
+    const originalOverflow = captureEl.style.overflow;
+
     try {
-      const originalTransform = captureEl.style.transform;
-      const originalZoom = captureEl.style.zoom;
-      const originalHeight = captureEl.style.height;
-      const originalOverflow = captureEl.style.overflow;
-      const fullHeight = captureEl.scrollHeight;
+      showToast('⏳ 正在生成长图，请稍候...');
       
       captureEl.style.transform = 'none';
       captureEl.style.zoom = '1';
@@ -1329,11 +1303,6 @@ export default function App() {
         }
       });
 
-      captureEl.style.transform = originalTransform;
-      captureEl.style.zoom = originalZoom;
-      captureEl.style.height = originalHeight;
-      captureEl.style.overflow = originalOverflow;
-
       const imgData = canvas.toDataURL('image/png');
       const filename = `fluxmark-${Date.now()}.png`;
       
@@ -1344,357 +1313,368 @@ export default function App() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      showToast('🖼️ 文档长图导出成功！');
     } catch (err) {
       console.error('Image export failed', err);
+      showToast('长图生成导出失败，请稍后重试');
+    } finally {
+      captureEl.style.transform = originalTransform;
+      captureEl.style.zoom = originalZoom;
+      captureEl.style.height = originalHeight;
+      captureEl.style.overflow = originalOverflow;
     }
   };
 
   const exportHTML = () => {
     if (!editor) return;
-    const htmlOutput = editor.getHTML();
-    const fullHtml = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>FluxMark Export</title>
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css">
-        <style>
-          :root { --accent: #1161f3; }
-          body { font-family: -apple-system, system-ui, sans-serif; padding: 60px; max-width: 800px; margin: 0 auto; line-height: 1.8; color: #1e293b; background: #fff; }
-          h1 { font-size: 2.5rem; font-bold; border-bottom: 2px solid #eee; padding-bottom: 15px; margin-top: 40px; color: #000; }
-          h2 { font-size: 1.8rem; font-bold; margin-top: 30px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
-          p { margin-bottom: 1.5rem; }
-          img { max-width: 100%; height: auto; border-radius: 12px; display: block; margin: 30px auto; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-          pre { background: #ffffff; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; overflow-x: auto; color: #1e293b; margin: 25px 0; font-size: 0.9rem; }
-          table { width: 100%; border-collapse: collapse; margin: 25px 0; border-radius: 8px; overflow: hidden; }
-          th, td { border: 1px solid #e2e8f0; padding: 12px 15px; text-align: left; }
-          th { background: #f8fafc; font-weight: bold; }
-          blockquote { border-left: 5px solid var(--accent); padding: 10px 25px; font-style: italic; color: #64748b; background: #f8fafc; margin: 25px 0; border-radius: 0 8px 8px 0; }
-          code:not(pre code) { background: #dbeafe; padding: 2px 6px; border-radius: 4px; color: #1e40af; font-family: monospace; }
-          mark { background-color: #dbeafe; color: #1e40af; padding: 0 4px; border-radius: 2px; font-style: normal; }
-        </style>
-      </head>
-      <body>${htmlOutput}</body>
-      </html>
-    `;
-    const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
-    saveAs(blob, 'fluxmark-document.html');
+    try {
+      const htmlOutput = editor.getHTML();
+      const fullHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>FluxMark Export</title>
+          <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css">
+          <style>
+            :root { --accent: #1161f3; }
+            body { font-family: -apple-system, system-ui, sans-serif; padding: 60px; max-width: 800px; margin: 0 auto; line-height: 1.8; color: #1e293b; background: #fff; }
+            h1 { font-size: 2.5rem; font-bold; border-bottom: 2px solid #eee; padding-bottom: 15px; margin-top: 40px; color: #000; }
+            h2 { font-size: 1.8rem; font-bold; margin-top: 30px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+            p { margin-bottom: 1.5rem; }
+            img { max-width: 100%; height: auto; border-radius: 12px; display: block; margin: 30px auto; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+            pre { background: #ffffff; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; overflow-x: auto; color: #1e293b; margin: 25px 0; font-size: 0.9rem; }
+            table { width: 100%; border-collapse: collapse; margin: 25px 0; border-radius: 8px; overflow: hidden; }
+            th, td { border: 1px solid #e2e8f0; padding: 12px 15px; text-align: left; }
+            th { background: #f8fafc; font-weight: bold; }
+            blockquote { border-left: 5px solid var(--accent); padding: 10px 25px; font-style: italic; color: #64748b; background: #f8fafc; margin: 25px 0; border-radius: 0 8px 8px 0; }
+            code:not(pre code) { background: #dbeafe; padding: 2px 6px; border-radius: 4px; color: #1e40af; font-family: monospace; }
+            mark { background-color: #dbeafe; color: #1e40af; padding: 0 4px; border-radius: 2px; font-style: normal; }
+          </style>
+        </head>
+        <body>${htmlOutput}</body>
+        </html>
+      `;
+      const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
+      saveAs(blob, 'fluxmark-document.html');
+      showToast('🌐 HTML 网页导出成功！');
+    } catch (e) {
+      console.error('Export HTML failed:', e);
+      showToast('导出 HTML 网页失败');
+    }
   };
 
   const exportWord = async () => {
     if (!editor) return;
-    const json = editor.getJSON();
-    
-    // Theme colors
-    const accentColor = '1161F3'; // Hex without # for docx
-    const borderColor = 'E2E8F0';
-    const textColor = '1E293B';
-    const secondaryTextColor = '64748B';
-    const bgSecondary = 'F8FAFC';
-    const highlightColor = 'DBEAFE';
+    try {
+      showToast('⏳ 正在生成 Word 文档，请稍候...');
+      const json = editor.getJSON();
+      
+      // Theme colors
+      const accentColor = '1161F3'; // Hex without # for docx
+      const borderColor = 'E2E8F0';
+      const textColor = '1E293B';
+      const secondaryTextColor = '64748B';
+      const bgSecondary = 'F8FAFC';
+      const highlightColor = 'DBEAFE';
 
-    const children: any[] = [];
+      const children: any[] = [];
 
-    const parseNodes = (nodes: any[], listLevel = 0, listType?: 'bullet' | 'ordered') => {
-      nodes.forEach(node => {
-        switch (node.type) {
-          case 'heading': {
-            const level = node.attrs.level || 1;
-            children.push(
-              new docx.Paragraph({
-                text: node.content?.map((c: any) => c.text).join('') || '',
-                heading: level === 1 ? docx.HeadingLevel.HEADING_1 : level === 2 ? docx.HeadingLevel.HEADING_2 : docx.HeadingLevel.HEADING_3,
-                spacing: { before: 400, after: 200 },
-                border: level <= 2 ? {
-                  bottom: { color: level === 1 ? accentColor : borderColor, space: 10, style: docx.BorderStyle.SINGLE, size: level === 1 ? 24 : 12 },
-                } : undefined,
-              })
-            );
-            break;
-          }
-          case 'paragraph': {
-            const runs = node.content?.map((c: any) => {
-              if (c.type === 'text') {
-                return new docx.TextRun({
-                  text: c.text,
-                  bold: c.marks?.some((m: any) => m.type === 'bold'),
-                  italics: c.marks?.some((m: any) => m.type === 'italic'),
-                  color: c.marks?.find((m: any) => m.type === 'textStyle')?.attrs?.color?.replace('#', '') || textColor,
-                  shading: c.marks?.some((m: any) => m.type === 'highlight') ? {
-                    type: docx.ShadingType.CLEAR,
-                    fill: highlightColor,
-                    color: 'auto',
+      const parseNodes = (nodes: any[], listLevel = 0, listType?: 'bullet' | 'ordered') => {
+        nodes.forEach(node => {
+          switch (node.type) {
+            case 'heading': {
+              const level = node.attrs.level || 1;
+              children.push(
+                new docx.Paragraph({
+                  text: node.content?.map((c: any) => c.text).join('') || '',
+                  heading: level === 1 ? docx.HeadingLevel.HEADING_1 : level === 2 ? docx.HeadingLevel.HEADING_2 : docx.HeadingLevel.HEADING_3,
+                  spacing: { before: 400, after: 200 },
+                  border: level <= 2 ? {
+                    bottom: { color: level === 1 ? accentColor : borderColor, space: 10, style: docx.BorderStyle.SINGLE, size: level === 1 ? 24 : 12 },
                   } : undefined,
-                });
-              } else if (c.type === 'inlineMath') {
-                return new docx.TextRun({
-                  text: `$${c.attrs.latex}$`,
-                  color: accentColor,
-                  italics: true,
-                  font: 'Cambria Math',
-                });
-              }
-              return null;
-            }).filter(Boolean);
-
-            const paragraphConfig: any = {
-              children: runs || [],
-              spacing: { line: 360, after: 200 },
-            };
-
-            if (listType === 'bullet') {
-              paragraphConfig.bullet = { level: listLevel - 1 };
-              paragraphConfig.spacing.after = 120;
-            } else if (listType === 'ordered') {
-              paragraphConfig.numbering = { reference: 'main-numbering', level: listLevel - 1 };
-              paragraphConfig.spacing.after = 120;
+                })
+              );
+              break;
             }
-
-            children.push(new docx.Paragraph(paragraphConfig));
-            break;
-          }
-          case 'bulletList':
-            if (node.content) parseNodes(node.content, listLevel + 1, 'bullet');
-            break;
-          case 'orderedList':
-            if (node.content) parseNodes(node.content, listLevel + 1, 'ordered');
-            break;
-          case 'listItem': {
-            if (node.content) parseNodes(node.content, listLevel);
-            break;
-          }
-          case 'table': {
-            const rows = node.content?.map((row: any) => {
-              const cells = row.content?.map((cell: any) => {
-                const cellChildren: any[] = [];
-                // Simple cell content parsing
-                cell.content?.forEach((p: any) => {
-                  const runs = p.content?.map((c: any) => new docx.TextRun({ text: c.text, bold: c.marks?.some((m: any) => m.type === 'bold') })) || [];
-                  cellChildren.push(new docx.Paragraph({ children: runs }));
-                });
-                return new docx.TableCell({
-                  children: cellChildren,
-                  verticalAlign: docx.VerticalAlign.CENTER,
-                  borders: {
-                    top: { style: docx.BorderStyle.SINGLE, size: 1, color: borderColor },
-                    bottom: { style: docx.BorderStyle.SINGLE, size: 1, color: borderColor },
-                    left: { style: docx.BorderStyle.SINGLE, size: 1, color: borderColor },
-                    right: { style: docx.BorderStyle.SINGLE, size: 1, color: borderColor },
-                  },
-                });
-              }) || [];
-              return new docx.TableRow({ children: cells });
-            }) || [];
-            children.push(new docx.Table({ rows, width: { size: 100, type: docx.WidthType.PERCENTAGE } }));
-            break;
-          }
-          case 'blockquote': {
-            const quoteText = node.content?.map((p: any) => p.content?.map((c: any) => c.text).join('')).join('\n') || '';
-            children.push(
-              new docx.Paragraph({
-                children: [new docx.TextRun({ text: quoteText, italics: true, color: secondaryTextColor })],
-                indent: { left: 720 },
-                shading: { type: docx.ShadingType.CLEAR, fill: bgSecondary },
-                border: {
-                  left: { color: accentColor, space: 10, style: docx.BorderStyle.SINGLE, size: 24 },
-                },
-                spacing: { before: 200, after: 200, line: 360 },
-              })
-            );
-            break;
-          }
-          case 'horizontalRule':
-            children.push(
-              new docx.Paragraph({
-                border: { bottom: { color: borderColor, space: 1, style: docx.BorderStyle.SINGLE, size: 6 } },
-                spacing: { before: 200, after: 200 },
-              })
-            );
-            break;
-          case 'codeBlock': {
-            const codeText = node.content?.map((c: any) => c.text).join('') || '';
-            const language = node.attrs?.language || 'javascript';
-            
-            // Map HLJS classes to colors matching index.css
-            const hljsToHex: Record<string, string> = {
-              'hljs-keyword': '0550AE',
-              'hljs-selector-tag': '0550AE',
-              'hljs-built_in': '0550AE',
-              'hljs-string': '116329',
-              'hljs-attr': '116329',
-              'hljs-number': '0550AE',
-              'hljs-literal': '0550AE',
-              'hljs-comment': '6E7781',
-              'hljs-quote': '6E7781',
-              'hljs-title': '8250DF',
-              'hljs-section': '8250DF',
-              'hljs-name': '8250DF',
-              'hljs-variable': '953800',
-              'hljs-template-variable': '953800',
-              'hljs-type': '0550AE',
-              'hljs-tag': '116329',
-              'hljs-punctuation': '1B1F24',
-            };
-
-            const cellChildren: any[] = [];
-            
-            // Add language/header row
-            cellChildren.push(
-              new docx.Paragraph({
-                children: [
-                  new docx.TextRun({ text: ' ● ● ●  ', color: 'CBD5E1', size: 16 }),
-                  new docx.TextRun({ text: language.toUpperCase(), font: 'Consolas', size: 16, color: '64748B', bold: true })
-                ],
-                spacing: { after: 100 },
-              })
-            );
-
-            try {
-              // Get highlighted tokens
-              const highlighted = lowlight.highlight(language, codeText);
-              
-              // Helper to flatten tokens to lines of TextRuns
-              const linesOfRuns: docx.TextRun[][] = [[]];
-              
-              const processNode = (n: any, currentClasses: string[] = []) => {
-                if (n.type === 'text') {
-                  const segments = n.value.split('\n');
-                  segments.forEach((segment: string, i: number) => {
-                    if (i > 0) linesOfRuns.push([]);
-                    if (segment) {
-                      const color = currentClasses.reduce((acc, cls) => hljsToHex[cls] || acc, textColor);
-                      linesOfRuns[linesOfRuns.length - 1].push(
-                        new docx.TextRun({ 
-                          text: segment, 
-                          font: 'Consolas', 
-                          size: 19, // ~9.5pt
-                          color: color,
-                          bold: currentClasses.some(cls => cls === 'hljs-keyword' || cls === 'hljs-title')
-                        })
-                      );
-                    }
+            case 'paragraph': {
+              const runs = node.content?.map((c: any) => {
+                if (c.type === 'text') {
+                  return new docx.TextRun({
+                    text: c.text,
+                    bold: c.marks?.some((m: any) => m.type === 'bold'),
+                    italics: c.marks?.some((m: any) => m.type === 'italic'),
+                    color: c.marks?.find((m: any) => m.type === 'textStyle')?.attrs?.color?.replace('#', '') || textColor,
+                    shading: c.marks?.some((m: any) => m.type === 'highlight') ? {
+                      type: docx.ShadingType.CLEAR,
+                      fill: highlightColor,
+                      color: 'auto',
+                    } : undefined,
                   });
-                } else if (n.children) {
-                  const newClasses = [...currentClasses, ...(n.properties?.className || [])];
-                  n.children.forEach((child: any) => processNode(child, newClasses));
+                } else if (c.type === 'inlineMath') {
+                  return new docx.TextRun({
+                    text: `$${c.attrs.latex}$`,
+                    color: accentColor,
+                    italics: true,
+                    font: 'Cambria Math',
+                  });
                 }
+                return null;
+              }).filter(Boolean);
+
+              const paragraphConfig: any = {
+                children: runs || [],
+                spacing: { line: 360, after: 200 },
               };
 
-              highlighted.children.forEach(n => processNode(n));
+              if (listType === 'bullet') {
+                paragraphConfig.bullet = { level: listLevel - 1 };
+                paragraphConfig.spacing.after = 120;
+              } else if (listType === 'ordered') {
+                paragraphConfig.numbering = { reference: 'main-numbering', level: listLevel - 1 };
+                paragraphConfig.spacing.after = 120;
+              }
 
-              // Convert lines of runs to paragraphs
-              linesOfRuns.forEach(runs => {
-                cellChildren.push(
-                  new docx.Paragraph({
-                    children: runs,
-                    spacing: { before: 0, after: 0, line: 240 },
-                  })
-                );
-              });
-            } catch (err) {
-              // Fallback to plain text if highlighting fails
-              codeText.split('\n').forEach(line => {
-                cellChildren.push(
-                  new docx.Paragraph({
-                    children: [new docx.TextRun({ text: line, font: 'Consolas', size: 19, color: textColor })],
-                    spacing: { before: 0, after: 0, line: 240 },
-                  })
-                );
-              });
+              children.push(new docx.Paragraph(paragraphConfig));
+              break;
             }
+            case 'bulletList':
+              if (node.content) parseNodes(node.content, listLevel + 1, 'bullet');
+              break;
+            case 'orderedList':
+              if (node.content) parseNodes(node.content, listLevel + 1, 'ordered');
+              break;
+            case 'listItem': {
+              if (node.content) parseNodes(node.content, listLevel);
+              break;
+            }
+            case 'table': {
+              const rows = node.content?.map((row: any) => {
+                const cells = row.content?.map((cell: any) => {
+                  const cellChildren: any[] = [];
+                  cell.content?.forEach((p: any) => {
+                    const runs = p.content?.map((c: any) => new docx.TextRun({ text: c.text, bold: c.marks?.some((m: any) => m.type === 'bold') })) || [];
+                    cellChildren.push(new docx.Paragraph({ children: runs }));
+                  });
+                  return new docx.TableCell({
+                    children: cellChildren,
+                    verticalAlign: docx.VerticalAlign.CENTER,
+                    borders: {
+                      top: { style: docx.BorderStyle.SINGLE, size: 1, color: borderColor },
+                      bottom: { style: docx.BorderStyle.SINGLE, size: 1, color: borderColor },
+                      left: { style: docx.BorderStyle.SINGLE, size: 1, color: borderColor },
+                      right: { style: docx.BorderStyle.SINGLE, size: 1, color: borderColor },
+                    },
+                  });
+                }) || [];
+                return new docx.TableRow({ children: cells });
+              }) || [];
+              children.push(new docx.Table({ rows, width: { size: 100, type: docx.WidthType.PERCENTAGE } }));
+              break;
+            }
+            case 'blockquote': {
+              const quoteText = node.content?.map((p: any) => p.content?.map((c: any) => c.text).join('')).join('\n') || '';
+              children.push(
+                new docx.Paragraph({
+                  children: [new docx.TextRun({ text: quoteText, italics: true, color: secondaryTextColor })],
+                  indent: { left: 720 },
+                  shading: { type: docx.ShadingType.CLEAR, fill: bgSecondary },
+                  border: {
+                    left: { color: accentColor, space: 10, style: docx.BorderStyle.SINGLE, size: 24 },
+                  },
+                  spacing: { before: 200, after: 200, line: 360 },
+                })
+              );
+              break;
+            }
+            case 'horizontalRule':
+              children.push(
+                new docx.Paragraph({
+                  border: { bottom: { color: borderColor, space: 1, style: docx.BorderStyle.SINGLE, size: 6 } },
+                  spacing: { before: 200, after: 200 },
+                })
+              );
+              break;
+            case 'codeBlock': {
+              const codeText = node.content?.map((c: any) => c.text).join('') || '';
+              const language = node.attrs?.language || 'javascript';
+              
+              const hljsToHex: Record<string, string> = {
+                'hljs-keyword': '0550AE',
+                'hljs-selector-tag': '0550AE',
+                'hljs-built_in': '0550AE',
+                'hljs-string': '116329',
+                'hljs-attr': '116329',
+                'hljs-number': '0550AE',
+                'hljs-literal': '0550AE',
+                'hljs-comment': '6E7781',
+                'hljs-quote': '6E7781',
+                'hljs-title': '8250DF',
+                'hljs-section': '8250DF',
+                'hljs-name': '8250DF',
+                'hljs-variable': '953800',
+                'hljs-template-variable': '953800',
+                'hljs-type': '0550AE',
+                'hljs-tag': '116329',
+                'hljs-punctuation': '1B1F24',
+              };
 
-            children.push(
-              new docx.Table({
-                width: { size: 100, type: docx.WidthType.PERCENTAGE },
-                rows: [
-                  new docx.TableRow({
-                    children: [
-                      new docx.TableCell({
-                        children: cellChildren,
-                        shading: { type: docx.ShadingType.CLEAR, fill: 'F8FAFC' },
-                        borders: {
-                          top: { color: borderColor, style: docx.BorderStyle.SINGLE, size: 6 },
-                          bottom: { color: borderColor, style: docx.BorderStyle.SINGLE, size: 6 },
-                          left: { color: borderColor, style: docx.BorderStyle.SINGLE, size: 6 },
-                          right: { color: borderColor, style: docx.BorderStyle.SINGLE, size: 6 },
-                        },
-                        margins: { top: 150, bottom: 150, left: 150, right: 150 },
-                      })
-                    ]
-                  })
-                ]
-              })
-            );
-            children.push(new docx.Paragraph({ spacing: { after: 200 } }));
-            break;
+              const cellChildren: any[] = [];
+              
+              cellChildren.push(
+                new docx.Paragraph({
+                  children: [
+                    new docx.TextRun({ text: ' ● ● ●  ', color: 'CBD5E1', size: 16 }),
+                    new docx.TextRun({ text: language.toUpperCase(), font: 'Consolas', size: 16, color: '64748B', bold: true })
+                  ],
+                  spacing: { after: 100 },
+                })
+              );
+
+              try {
+                const highlighted = lowlight.highlight(language, codeText);
+                const linesOfRuns: docx.TextRun[][] = [[]];
+                
+                const processNode = (n: any, currentClasses: string[] = []) => {
+                  if (n.type === 'text') {
+                    const segments = n.value.split('\n');
+                    segments.forEach((segment: string, i: number) => {
+                      if (i > 0) linesOfRuns.push([]);
+                      if (segment) {
+                        const color = currentClasses.reduce((acc, cls) => hljsToHex[cls] || acc, textColor);
+                        linesOfRuns[linesOfRuns.length - 1].push(
+                          new docx.TextRun({ 
+                            text: segment, 
+                            font: 'Consolas', 
+                            size: 19,
+                            color: color,
+                            bold: currentClasses.some(cls => cls === 'hljs-keyword' || cls === 'hljs-title')
+                          })
+                        );
+                      }
+                    });
+                  } else if (n.children) {
+                    const newClasses = [...currentClasses, ...(n.properties?.className || [])];
+                    n.children.forEach((child: any) => processNode(child, newClasses));
+                  }
+                };
+
+                highlighted.children.forEach(n => processNode(n));
+
+                linesOfRuns.forEach(runs => {
+                  cellChildren.push(
+                    new docx.Paragraph({
+                      children: runs,
+                      spacing: { before: 0, after: 0, line: 240 },
+                    })
+                  );
+                });
+              } catch (err) {
+                codeText.split('\n').forEach(line => {
+                  cellChildren.push(
+                    new docx.Paragraph({
+                      children: [new docx.TextRun({ text: line, font: 'Consolas', size: 19, color: textColor })],
+                      spacing: { before: 0, after: 0, line: 240 },
+                    })
+                  );
+                });
+              }
+
+              children.push(
+                new docx.Table({
+                  width: { size: 100, type: docx.WidthType.PERCENTAGE },
+                  rows: [
+                    new docx.TableRow({
+                      children: [
+                        new docx.TableCell({
+                          children: cellChildren,
+                          shading: { type: docx.ShadingType.CLEAR, fill: 'F8FAFC' },
+                          borders: {
+                            top: { color: borderColor, style: docx.BorderStyle.SINGLE, size: 6 },
+                            bottom: { color: borderColor, style: docx.BorderStyle.SINGLE, size: 6 },
+                            left: { color: borderColor, style: docx.BorderStyle.SINGLE, size: 6 },
+                            right: { color: borderColor, style: docx.BorderStyle.SINGLE, size: 6 },
+                          },
+                          margins: { top: 150, bottom: 150, left: 150, right: 150 },
+                        })
+                      ]
+                    })
+                  ]
+                })
+              );
+              children.push(new docx.Paragraph({ spacing: { after: 200 } }));
+              break;
+            }
+            case 'blockMath': {
+              children.push(
+                new docx.Paragraph({
+                  children: [new docx.TextRun({ text: `$$${node.attrs.latex}$$`, color: accentColor, font: 'Cambria Math' })],
+                  alignment: docx.AlignmentType.CENTER,
+                  spacing: { before: 200, after: 200 },
+                })
+              );
+              break;
+            }
           }
-          case 'blockMath': {
-            children.push(
-              new docx.Paragraph({
-                children: [new docx.TextRun({ text: `$$${node.attrs.latex}$$`, color: accentColor, font: 'Cambria Math' })],
-                alignment: docx.AlignmentType.CENTER,
-                spacing: { before: 200, after: 200 },
-              })
-            );
-            break;
-          }
-          // Tables and images can be added here if needed, but keeping it focused on text structure first
+        });
+      };
+
+      if (json.content) parseNodes(json.content);
+
+      const doc = new docx.Document({
+        numbering: {
+          config: [
+            {
+              reference: "main-numbering",
+              levels: [
+                { level: 0, format: docx.LevelFormat.DECIMAL, text: "%1.", alignment: docx.AlignmentType.START },
+                { level: 1, format: docx.LevelFormat.DECIMAL, text: "%1.%2.", alignment: docx.AlignmentType.START },
+                { level: 2, format: docx.LevelFormat.DECIMAL, text: "%1.%2.%3.", alignment: docx.AlignmentType.START },
+              ],
+            },
+          ],
+        },
+        sections: [{
+          properties: {},
+          children: children,
+        }],
+        styles: {
+          paragraphStyles: [
+            {
+              id: "Heading1",
+              name: "Heading 1",
+              basedOn: "Normal",
+              next: "Normal",
+              quickFormat: true,
+              run: {
+                size: 56, // 28pt
+                bold: true,
+                color: accentColor,
+              },
+            },
+            {
+              id: "Heading2",
+              name: "Heading 2",
+              basedOn: "Normal",
+              next: "Normal",
+              quickFormat: true,
+              run: {
+                size: 40, // 20pt
+                bold: true,
+                color: '334155',
+              },
+            }
+          ]
         }
       });
-    };
 
-    if (json.content) parseNodes(json.content);
-
-    const doc = new docx.Document({
-      numbering: {
-        config: [
-          {
-            reference: "main-numbering",
-            levels: [
-              { level: 0, format: docx.LevelFormat.DECIMAL, text: "%1.", alignment: docx.AlignmentType.START },
-              { level: 1, format: docx.LevelFormat.DECIMAL, text: "%1.%2.", alignment: docx.AlignmentType.START },
-              { level: 2, format: docx.LevelFormat.DECIMAL, text: "%1.%2.%3.", alignment: docx.AlignmentType.START },
-            ],
-          },
-        ],
-      },
-      sections: [{
-        properties: {},
-        children: children,
-      }],
-      styles: {
-        paragraphStyles: [
-          {
-            id: "Heading1",
-            name: "Heading 1",
-            basedOn: "Normal",
-            next: "Normal",
-            quickFormat: true,
-            run: {
-              size: 56, // 28pt
-              bold: true,
-              color: accentColor,
-            },
-          },
-          {
-            id: "Heading2",
-            name: "Heading 2",
-            basedOn: "Normal",
-            next: "Normal",
-            quickFormat: true,
-            run: {
-              size: 40, // 20pt
-              bold: true,
-              color: '334155',
-            },
-          }
-        ]
-      }
-    });
-
-    const blob = await docx.Packer.toBlob(doc);
-    saveAs(blob, `fluxmark-${Date.now()}.docx`);
+      const blob = await docx.Packer.toBlob(doc);
+      saveAs(blob, `fluxmark-${Date.now()}.docx`);
+      showToast('📝 Word 文档 (.docx) 导出成功！');
+    } catch (e) {
+      console.error('Export Word docx failed:', e);
+      showToast('导出 Word 文档失败，请重试');
+    }
   };
 
   // 图片上传与裁剪
@@ -2146,7 +2126,9 @@ export default function App() {
             </ToolbarGroup>
 
             <ToolbarGroup label="帮助" alignRight>
-              <ToolbarItem icon={<HelpCircle size={16} />} label="快捷键说明" onClick={() => setShowHelpModal(true)} />
+              <ToolbarItem icon={<HelpCircle size={16} />} label="快捷键指南" onClick={() => setShowHelpModal(true)} />
+              <ToolbarItem icon={<ShieldCheckIcon size={16} />} label="隐私说明" onClick={() => setShowPrivacyModal(true)} />
+              <ToolbarItem icon={<HeartIcon size={16} className="text-rose-500" />} label="赏赞支持" onClick={() => setShowSponsorModal(true)} />
             </ToolbarGroup>
           </nav>
         </div>
@@ -2167,6 +2149,15 @@ export default function App() {
           <div className="h-6 w-px bg-[var(--border)]" />
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowSponsorModal(true)}
+              className="px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-600 transition-all flex items-center gap-1.5 text-xs font-bold shadow-xs active:scale-95 cursor-pointer"
+              title="赏赞与支持 FluxMark"
+            >
+              <HeartIcon size={15} className="fill-rose-500 text-rose-500" />
+              <span className="hidden sm:inline">赏赞支持</span>
+            </button>
+            <div className="h-6 w-px bg-[var(--border)] mx-0.5" />
             <button 
               onClick={() => setShowAIChat(!showAIChat)}
               className={`p-2 rounded-lg transition-all flex items-center gap-2 ${showAIChat ? 'bg-[var(--accent)] text-white shadow-md' : 'hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-transparent hover:border-[var(--border)]'}`}
@@ -3099,6 +3090,26 @@ export default function App() {
                   <Keyboard size={15} />
                   快捷键说明
                 </button>
+                <button
+                  onClick={() => {
+                    setShowHelpModal(false);
+                    setShowPrivacyModal(true);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
+                >
+                  <ShieldCheckIcon size={15} className="text-indigo-500" />
+                  隐私说明
+                </button>
+                <button
+                  onClick={() => {
+                    setShowHelpModal(false);
+                    setShowSponsorModal(true);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200"
+                >
+                  <HeartIcon size={15} className="fill-rose-500 text-rose-500" />
+                  赏赞支持
+                </button>
               </div>
 
               {/* Modal Body */}
@@ -3230,6 +3241,12 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Privacy Policy Modal */}
+      <PrivacyModal isOpen={showPrivacyModal} onClose={() => setShowPrivacyModal(false)} />
+
+      {/* Support / Sponsorship Modal */}
+      <SponsorModal isOpen={showSponsorModal} onClose={() => setShowSponsorModal(false)} showToast={showToast} />
 
       {/* --- Countdown Timer Modal --- */}
       <AnimatePresence>
