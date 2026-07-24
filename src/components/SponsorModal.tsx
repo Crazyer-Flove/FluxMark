@@ -10,8 +10,8 @@ import { Heart, Coffee, X, Check, Copy, Sparkles, QrCode, ShieldCheck, Gift } fr
 // const CUSTOM_ALIPAY_QR = '/alipay-qr.png';
 // 或使用网络图片 URL，留空则显示极简矢量示范二维码。
 // =========================================================================
-const CUSTOM_WECHAT_QR = ''; // 例如: '/wechat-qr.jpg' 或图片Base64/链接
-const CUSTOM_ALIPAY_QR = ''; // 例如: '/alipay-qr.jpg' 或图片Base64/链接
+const CUSTOM_WECHAT_QR = '/wechat-qr.jpg'; // 例如: '/wechat-qr.jpg' 或图片Base64/链接
+const CUSTOM_ALIPAY_QR = '/alipay-qr.jpg'; // 例如: '/alipay-qr.jpg' 或图片Base64/链接
 
 interface SponsorModalProps {
   isOpen: boolean;
@@ -24,13 +24,17 @@ export const SponsorModal: React.FC<SponsorModalProps> = ({ isOpen, onClose, sho
   const [selectedAmount, setSelectedAmount] = useState<number>(10);
   const [copied, setCopied] = useState<boolean>(false);
 
-  // 本地临时上传展示（可随时替换）
-  const [userWechatQr, setUserWechatQr] = useState<string>(CUSTOM_WECHAT_QR);
-  const [userAlipayQr, setUserAlipayQr] = useState<string>(CUSTOM_ALIPAY_QR);
+  const [customWechatUploaded, setCustomWechatUploaded] = useState<string | null>(null);
+  const [customAlipayUploaded, setCustomAlipayUploaded] = useState<string | null>(null);
+  const [imgErrorMap, setImgErrorMap] = useState<Record<string, boolean>>({});
 
   if (!isOpen) return null;
 
-  const currentQrImage = payMethod === 'wechat' ? userWechatQr : userAlipayQr;
+  const activeWechatQr = customWechatUploaded || CUSTOM_WECHAT_QR;
+  const activeAlipayQr = customAlipayUploaded || CUSTOM_ALIPAY_QR;
+
+  const currentQrImage = payMethod === 'wechat' ? activeWechatQr : activeAlipayQr;
+  const isCurrentImgValid = currentQrImage && !imgErrorMap[currentQrImage];
 
   const handleQrUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -39,10 +43,12 @@ export const SponsorModal: React.FC<SponsorModalProps> = ({ isOpen, onClose, sho
       reader.onload = (evt) => {
         const result = evt.target?.result as string;
         if (payMethod === 'wechat') {
-          setUserWechatQr(result);
+          setCustomWechatUploaded(result);
+          setImgErrorMap(prev => ({ ...prev, [result]: false }));
           if (showToast) showToast('✅ 微信收款二维码图片更新成功！');
         } else {
-          setUserAlipayQr(result);
+          setCustomAlipayUploaded(result);
+          setImgErrorMap(prev => ({ ...prev, [result]: false }));
           if (showToast) showToast('✅ 支付宝收款二维码图片更新成功！');
         }
       };
@@ -190,11 +196,16 @@ export const SponsorModal: React.FC<SponsorModalProps> = ({ isOpen, onClose, sho
                     payMethod === 'wechat' ? 'border-[#07C160]' : 'border-[#1677FF]'
                   }`}
                 >
-                  {currentQrImage ? (
+                  {isCurrentImgValid ? (
                     <img
                       src={currentQrImage}
                       alt={`${payMethod === 'wechat' ? '微信' : '支付宝'}收款二维码`}
                       className="w-full h-full object-contain rounded-xl"
+                      onError={() => {
+                        if (currentQrImage) {
+                          setImgErrorMap(prev => ({ ...prev, [currentQrImage]: true }));
+                        }
+                      }}
                     />
                   ) : (
                     /* Generated QR Code SVG fallback */
