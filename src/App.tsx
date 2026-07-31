@@ -6,7 +6,7 @@ import {
   Folder, FilePlus, ChevronDown, Superscript as SuperscriptIcon, Subscript as SubscriptIcon,
   Type, Palette, AlignCenter, AlignLeft, Trash2, Printer, MousePointer2, Pencil, Eraser, Timer, RefreshCcw, Target,
   FileCode, Share2, HelpCircle, FileDown, Upload, Bold, Italic, List, ListTodo, Heading1, Heading2, Quote, Highlighter, Video as VideoIcon,
-  Undo, Redo, Wand2,
+  Undo, Redo, Wand2, Zap, Search,
   AlertCircle, Check, Plus, BookOpen, Keyboard, UserCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -43,6 +43,7 @@ import { BlockMath } from './extensions/BlockMath';
 import { Video } from './extensions/Video';
 import { HeadingSuggestion } from './extensions/HeadingSuggestion';
 import { EmojiSuggestion } from './extensions/EmojiSuggestion';
+import { CustomFormattingInputRules } from './extensions/CustomFormattingInputRules';
 import { AIChat } from './components/AIChat';
 import { DocumentOutlineStats } from './components/DocumentOutlineStats';
 import { HighlightPopover } from './components/HighlightPopover';
@@ -50,6 +51,7 @@ import { StudentPickerModal } from './components/StudentPickerModal';
 import { ImageCropperModal } from './components/ImageCropperModal';
 import { PrivacyModal } from './components/PrivacyModal';
 import { SponsorModal } from './components/SponsorModal';
+import { PresBgModal, PresBgConfig, DEFAULT_PRES_BG_CONFIG, getPresBgStyle, renderPresPatternOverlay } from './components/PresBgModal';
 import { executeSmartFormat } from './utils/smartFormat';
 import { Sparkles as SparklesIcon, ShieldCheck as ShieldCheckIcon, Heart as HeartIcon } from 'lucide-react';
 
@@ -282,6 +284,7 @@ export default function App() {
   const [showPrivacyModal, setShowPrivacyModal] = useState<boolean>(false);
   const [showSponsorModal, setShowSponsorModal] = useState<boolean>(false);
   const [helpTab, setHelpTab] = useState<'tutorial' | 'shortcuts'>('tutorial');
+  const [shortcutFilter, setShortcutFilter] = useState<string>('');
   const [cropImage, setCropImage] = useState<string | null>(null);
   const [showHighlightPopover, setShowHighlightPopover] = useState<boolean>(false);
   const [showSelectionHighlightPopover, setShowSelectionHighlightPopover] = useState<boolean>(false);
@@ -289,6 +292,19 @@ export default function App() {
   
   // Presentation Annotation & Slide State
   const [currentSlideIndex, setCurrentSlideIndex] = useState<number>(0);
+  const [slideDirection, setSlideDirection] = useState<number>(1); // 1 for next, -1 for prev
+
+  const changeSlideIndex = (targetOrUpdater: number | ((prev: number) => number)) => {
+    setCurrentSlideIndex(prev => {
+      const nextVal = typeof targetOrUpdater === 'function' ? targetOrUpdater(prev) : targetOrUpdater;
+      if (nextVal > prev) {
+        setSlideDirection(1);
+      } else if (nextVal < prev) {
+        setSlideDirection(-1);
+      }
+      return nextVal;
+    });
+  };
   const [presentTool, setPresentTool] = useState<'select' | 'pen' | 'eraser' | 'laser'>('select');
   const [laserPos, setLaserPos] = useState<{ x: number; y: number; visible: boolean }>({ x: 0, y: 0, visible: false });
   const [presentColor, setPresentColor] = useState<string>('#3b82f6');
@@ -302,6 +318,17 @@ export default function App() {
   const [showStudentPickerModal, setShowStudentPickerModal] = useState<boolean>(false);
   const [timerScale, setTimerScale] = useState<number>(1);
   const [countdownModalScale, setCountdownModalScale] = useState<number>(1);
+  
+  // Presentation Background & Pattern Settings State
+  const [presBgConfig, setPresBgConfig] = useState<PresBgConfig>(() => {
+    try {
+      const saved = localStorage.getItem('fluxmark_pres_bg');
+      return saved ? JSON.parse(saved) : DEFAULT_PRES_BG_CONFIG;
+    } catch {
+      return DEFAULT_PRES_BG_CONFIG;
+    }
+  });
+  const [showPresBgModal, setShowPresBgModal] = useState<boolean>(false);
 
   // Custom UI notification and dialog states
   const [docName, setDocName] = useState<string>('当前文档.md');
@@ -406,6 +433,7 @@ export default function App() {
       Video,
       HeadingSuggestion,
       EmojiSuggestion,
+      CustomFormattingInputRules,
     ],
     content: (() => {
       const saved = localStorage.getItem(FLUXMARK_STORAGE_KEY);
@@ -490,6 +518,7 @@ export default function App() {
       Video,
       HeadingSuggestion,
       EmojiSuggestion,
+      CustomFormattingInputRules,
     ],
     content: '',
     editorProps: {
@@ -553,7 +582,7 @@ export default function App() {
     rawSlides.splice(insertIdx, 0, '<h2>新幻灯片</h2><p>点击在此处输入内容...</p>');
     const newFull = rawSlides.join('<hr>');
     editor.commands.setContent(newFull);
-    setCurrentSlideIndex(insertIdx);
+    changeSlideIndex(insertIdx);
   };
 
   const handleDeleteSlideInPresentation = () => {
@@ -571,38 +600,70 @@ export default function App() {
     rawSlides.splice(targetIdx, 1);
     const newFull = rawSlides.join('<hr>');
     editor.commands.setContent(newFull);
-    setCurrentSlideIndex(Math.max(0, targetIdx - 1));
+    changeSlideIndex(Math.max(0, targetIdx - 1));
   };
 
   const handleClearSlideInPresentation = () => {
     slideEditor?.commands.setContent('<p></p>');
   };
 
+  const getSlideTransitionVariants = (type: string = 'slide-x', direction: number = 1) => {
+    switch (type) {
+      case 'fade':
+        return {
+          initial: { opacity: 0 },
+          animate: { opacity: 1 },
+          exit: { opacity: 0 },
+        };
+      case 'slide-y':
+        return {
+          initial: { opacity: 0, y: direction > 0 ? 60 : -60 },
+          animate: { opacity: 1, y: 0 },
+          exit: { opacity: 0, y: direction > 0 ? -60 : 60 },
+        };
+      case 'zoom':
+        return {
+          initial: { opacity: 0, scale: direction > 0 ? 0.92 : 1.08 },
+          animate: { opacity: 1, scale: 1 },
+          exit: { opacity: 0, scale: direction > 0 ? 1.08 : 0.92 },
+        };
+      case 'flip':
+        return {
+          initial: { opacity: 0, rotateY: direction > 0 ? 25 : -25 },
+          animate: { opacity: 1, rotateY: 0 },
+          exit: { opacity: 0, rotateY: direction > 0 ? -25 : 25 },
+        };
+      case 'slide-x':
+      default:
+        return {
+          initial: { opacity: 0, x: direction > 0 ? 60 : -60 },
+          animate: { opacity: 1, x: 0 },
+          exit: { opacity: 0, x: direction > 0 ? -60 : 60 },
+        };
+    }
+  };
+
+  const canPresUndo = (slideEditor?.can().undo() || editor?.can().undo()) ?? false;
+  const canPresRedo = (slideEditor?.can().redo() || editor?.can().redo()) ?? false;
+
+  const handlePresUndo = () => {
+    if (slideEditor && slideEditor.can().undo()) {
+      slideEditor.chain().focus().undo().run();
+    } else if (editor && editor.can().undo()) {
+      editor.chain().focus().undo().run();
+    }
+  };
+
+  const handlePresRedo = () => {
+    if (slideEditor && slideEditor.can().redo()) {
+      slideEditor.chain().focus().redo().run();
+    } else if (editor && editor.can().redo()) {
+      editor.chain().focus().redo().run();
+    }
+  };
+
   const getSlideDensityClass = () => {
-    if (!slideEditor) return 'slide-density-normal';
-    const text = slideEditor.getText().trim();
-    const len = text.length;
-    const html = slideEditor.getHTML();
-
-    const hasCode = html.includes('<pre') || html.includes('<code');
-    const hasImage = html.includes('<img');
-    const hasTable = html.includes('<table');
-    const hasVideo = html.includes('<iframe') || html.includes('<video');
-
-    if (hasCode || hasImage || hasTable || hasVideo) {
-      if (len < 80) return 'slide-density-medium';
-      return 'slide-density-normal';
-    }
-
-    if (len < 40) {
-      return 'slide-density-hero';
-    } else if (len < 130) {
-      return 'slide-density-sparse';
-    } else if (len < 320) {
-      return 'slide-density-medium';
-    } else {
-      return 'slide-density-normal';
-    }
+    return 'slide-density-normal';
   };
 
   useEffect(() => {
@@ -1829,6 +1890,11 @@ export default function App() {
   useEffect(() => {
     if (!isPresentation) return;
     
+    // Reset scroll positions when entering presentation mode so fixed layout is not offset
+    window.scrollTo(0, 0);
+    const vp = document.getElementById('editor-viewport');
+    if (vp) vp.scrollTop = 0;
+    
     const updateCanvasSize = () => {
       const canvas = canvasRef.current;
       if (canvas) {
@@ -1861,16 +1927,16 @@ export default function App() {
       if (isEditing) {
         if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowRight') {
           e.preventDefault();
-          setCurrentSlideIndex(prev => Math.min(slideCount - 1, prev + 1));
+          changeSlideIndex(prev => Math.min(slideCount - 1, prev + 1));
         } else if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowLeft') {
           e.preventDefault();
-          setCurrentSlideIndex(prev => Math.max(0, prev - 1));
+          changeSlideIndex(prev => Math.max(0, prev - 1));
         } else if (e.key === 'PageDown') {
           e.preventDefault();
-          setCurrentSlideIndex(prev => Math.min(slideCount - 1, prev + 1));
+          changeSlideIndex(prev => Math.min(slideCount - 1, prev + 1));
         } else if (e.key === 'PageUp') {
           e.preventDefault();
-          setCurrentSlideIndex(prev => Math.max(0, prev - 1));
+          changeSlideIndex(prev => Math.max(0, prev - 1));
         } else if (e.key === 'Escape') {
           setIsPresentation(false);
         }
@@ -1879,16 +1945,16 @@ export default function App() {
 
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ' || e.key === 'PageDown') {
         e.preventDefault();
-        setCurrentSlideIndex(prev => Math.min(slideCount - 1, prev + 1));
+        changeSlideIndex(prev => Math.min(slideCount - 1, prev + 1));
       } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
         e.preventDefault();
-        setCurrentSlideIndex(prev => Math.max(0, prev - 1));
+        changeSlideIndex(prev => Math.max(0, prev - 1));
       } else if (e.key === 'Home') {
         e.preventDefault();
-        setCurrentSlideIndex(0);
+        changeSlideIndex(0);
       } else if (e.key === 'End') {
         e.preventDefault();
-        setCurrentSlideIndex(slideCount - 1);
+        changeSlideIndex(slideCount - 1);
       } else if (e.key === 'Escape') {
         setIsPresentation(false);
       }
@@ -2493,43 +2559,107 @@ export default function App() {
         </AnimatePresence>
 
         <div 
-          className={`flex-1 overflow-y-auto no-scrollbar scroll-smooth transition-all duration-300 ${isPresentation ? "fixed inset-0 z-[1000] bg-slate-900 flex flex-col overflow-hidden text-slate-100" : "bg-[var(--bg-secondary)]"}`} 
+          className={`flex-1 overflow-y-auto no-scrollbar scroll-smooth transition-all duration-300 ${isPresentation ? "fixed inset-0 w-screen h-screen z-[1000] flex flex-col overflow-hidden text-slate-100" : "bg-[var(--bg-secondary)]"}`} 
           id="editor-viewport"
+          style={isPresentation ? getPresBgStyle(presBgConfig) : undefined}
         >
           {isPresentation ? (
-            <div className="fixed inset-0 z-[1000] bg-slate-900 flex flex-col overflow-hidden text-slate-100">
-              {/* PPT Top Header Bar */}
-              <div className="h-16 flex justify-between items-center px-8 border-b border-slate-800 z-[1010] bg-slate-900/95 backdrop-blur-md sticky top-0 shadow-md shrink-0">
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
-                    <span className="text-xs font-bold text-white uppercase tracking-wider">PPT 放映模式</span>
+            <div 
+              className="w-full h-full flex flex-col overflow-hidden text-slate-100 relative"
+              style={getPresBgStyle(presBgConfig)}
+            >
+              {/* Presentation Background Pattern / Mesh Overlay */}
+              {renderPresPatternOverlay(presBgConfig)}
+
+              {/* PPT Top Header Bar (Compact height) */}
+              <div className="h-12 w-full flex justify-between items-center px-4 md:px-6 border-b border-slate-800/80 z-[1010] bg-slate-900/95 backdrop-blur-md shrink-0 text-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                    <span className="text-[11px] font-bold text-white uppercase tracking-wider">PPT 放映</span>
                   </div>
+
+                  <div className="h-3.5 w-px bg-slate-800 my-auto" />
+
                   <button
                     onClick={() => {
                       clearCanvas();
                       showToast('已一键清空屏幕标注');
                     }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-red-500/20 text-slate-300 hover:text-red-400 border border-slate-700 transition-all text-xs font-medium cursor-pointer"
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800/90 hover:bg-red-500/20 text-slate-300 hover:text-red-400 border border-slate-700/80 transition-all text-[11px] font-medium cursor-pointer"
                     title="一键清空屏幕上的画笔与标注"
                   >
-                    <Trash2 size={15} className="text-red-400" />
-                    <span>一键清屏</span>
+                    <Trash2 size={13} className="text-red-400" />
+                    <span>清屏</span>
+                  </button>
+
+                  <button
+                    onClick={() => setShowPresBgModal(true)}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800/90 hover:bg-indigo-600/30 text-slate-300 hover:text-indigo-300 border border-slate-700/80 hover:border-indigo-500/50 transition-all text-[11px] font-medium cursor-pointer"
+                    title="自定义或切换 PPT 放映背景渐变与科技纹理"
+                  >
+                    <Palette size={13} className="text-indigo-400" />
+                    <span>背景纹理</span>
+                  </button>
+
+                  <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800/90 border border-slate-700/80 text-[11px] text-slate-300 font-medium">
+                    <Zap size={13} className="text-amber-400" />
+                    <select
+                      value={presBgConfig.transitionType || 'slide-x'}
+                      onChange={(e) => {
+                        const newType = e.target.value as any;
+                        setPresBgConfig(prev => {
+                          const updated = { ...prev, transitionType: newType };
+                          try { localStorage.setItem('fluxmark_pres_bg', JSON.stringify(updated)); } catch {}
+                          return updated;
+                        });
+                      }}
+                      className="bg-transparent border-0 text-[11px] font-medium text-slate-200 focus:outline-hidden cursor-pointer"
+                      title="选择幻灯片切换过渡动画"
+                    >
+                      <option value="slide-x" className="bg-slate-900 text-white">切换: 横向滑动</option>
+                      <option value="fade" className="bg-slate-900 text-white">切换: 柔和淡入</option>
+                      <option value="slide-y" className="bg-slate-900 text-white">切换: 纵向推移</option>
+                      <option value="zoom" className="bg-slate-900 text-white">切换: 3D 缩放</option>
+                      <option value="flip" className="bg-slate-900 text-white">切换: 视效翻转</option>
+                    </select>
+                  </div>
+
+                  <div className="h-3.5 w-px bg-slate-800 my-auto" />
+
+                  <button
+                    disabled={!canPresUndo}
+                    onClick={handlePresUndo}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800/90 hover:bg-slate-700/80 text-slate-300 hover:text-white border border-slate-700/80 transition-all text-[11px] font-medium cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="撤销操作 (Ctrl+Z)"
+                  >
+                    <Undo size={13} />
+                    <span>撤销</span>
+                  </button>
+
+                  <button
+                    disabled={!canPresRedo}
+                    onClick={handlePresRedo}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800/90 hover:bg-slate-700/80 text-slate-300 hover:text-white border border-slate-700/80 transition-all text-[11px] font-medium cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="重做操作 (Ctrl+Y)"
+                  >
+                    <Redo size={13} />
+                    <span>重做</span>
                   </button>
                 </div>
 
                 {/* Slide Navigation Controls */}
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
                   <button
                     disabled={validSlideIndex === 0}
-                    onClick={() => setCurrentSlideIndex(prev => Math.max(0, prev - 1))}
-                    className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-blue-600 text-slate-200 hover:text-white transition-all disabled:opacity-30 disabled:hover:bg-slate-800 disabled:hover:text-slate-200 cursor-pointer flex items-center gap-1 font-medium text-xs border border-slate-700"
+                    onClick={() => changeSlideIndex(prev => Math.max(0, prev - 1))}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800/90 hover:bg-blue-600 text-slate-200 hover:text-white transition-all disabled:opacity-30 disabled:hover:bg-slate-800 disabled:hover:text-slate-200 cursor-pointer flex items-center gap-1 font-medium text-[11px] border border-slate-700/80"
                   >
-                    <ChevronLeft size={16} />
+                    <ChevronLeft size={14} />
                     上一页
                   </button>
 
-                  <div className="px-4 py-1.5 bg-slate-800/90 rounded-xl border border-slate-700 text-xs font-mono font-bold text-blue-400 flex items-center gap-1.5">
+                  <div className="px-3 py-1 bg-slate-800/90 rounded-lg border border-slate-700/80 text-[11px] font-mono font-bold text-blue-400 flex items-center gap-1">
                     <span>{validSlideIndex + 1}</span>
                     <span className="text-slate-500">/</span>
                     <span>{slides.length}</span>
@@ -2537,42 +2667,45 @@ export default function App() {
 
                   <button
                     disabled={validSlideIndex >= slides.length - 1}
-                    onClick={() => setCurrentSlideIndex(prev => Math.min(slides.length - 1, prev + 1))}
-                    className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-blue-600 text-slate-200 hover:text-white transition-all disabled:opacity-30 disabled:hover:bg-slate-800 disabled:hover:text-slate-200 cursor-pointer flex items-center gap-1 font-medium text-xs border border-slate-700"
+                    onClick={() => changeSlideIndex(prev => Math.min(slides.length - 1, prev + 1))}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800/90 hover:bg-blue-600 text-slate-200 hover:text-white transition-all disabled:opacity-30 disabled:hover:bg-slate-800 disabled:hover:text-slate-200 cursor-pointer flex items-center gap-1 font-medium text-[11px] border border-slate-700/80"
                   >
                     下一页
-                    <ChevronRight size={16} />
+                    <ChevronRight size={14} />
                   </button>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
                   <button 
                     onClick={togglePresentation} 
-                    className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition-all cursor-pointer text-xs shadow-lg shadow-red-500/20 active:scale-95"
+                    className="flex items-center gap-1.5 px-3 py-1 bg-red-500 hover:bg-red-600 text-white font-bold rounded-lg transition-all cursor-pointer text-[11px] shadow-md shadow-red-500/20 active:scale-95"
                   >
-                    <Maximize2 size={16} className="rotate-45" />
+                    <Maximize2 size={13} className="rotate-45" />
                     退出放映
                   </button>
                 </div>
               </div>
 
-              {/* Slide Content Viewport (Near Full-Screen Display with Direct In-Place Editing) */}
-              <div className="flex-1 flex flex-col items-center justify-center p-2 sm:p-3 md:p-4 overflow-hidden relative">
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={validSlideIndex}
-                    initial={{ opacity: 0, scale: 0.98, x: 20 }}
-                    animate={{ opacity: 1, scale: 1, x: 0 }}
-                    exit={{ opacity: 0, scale: 0.98, x: -20 }}
-                    transition={{ duration: 0.2 }}
-                    className="w-full h-full max-w-none max-h-[94vh] bg-[var(--bg-primary)] text-[var(--text-primary)] rounded-2xl md:rounded-3xl p-6 md:p-12 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.5)] border border-slate-700/50 flex flex-col overflow-y-auto no-scrollbar relative select-text transition-all"
-                  >
-                    {/* Active Editable Slide Content - Directly editable without extra toolbars */}
-                    <div className={`flex-1 w-full overflow-y-auto no-scrollbar py-2 flex flex-col justify-center transition-all duration-300 ${getSlideDensityClass()}`}>
-                      <EditorContent editor={slideEditor} />
-                    </div>
-                  </motion.div>
-                </AnimatePresence>
+              {/* Slide Content Viewport (Static Fixed Full-Screen White Card) */}
+              <div className="flex-1 w-full h-[calc(100vh-3rem)] min-h-0 p-3 sm:p-4 md:p-6 relative flex flex-col overflow-hidden">
+                {/* Fixed Full-Screen White Rounded Rectangle Container */}
+                <div className="w-full h-full min-h-0 flex-1 bg-[var(--bg-primary)] text-[var(--text-primary)] rounded-2xl md:rounded-3xl p-6 md:p-12 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.5)] border border-slate-700/50 flex flex-col overflow-hidden relative select-text">
+                  <AnimatePresence mode="wait" custom={slideDirection}>
+                    <motion.div
+                      key={validSlideIndex}
+                      custom={slideDirection}
+                      variants={getSlideTransitionVariants(presBgConfig.transitionType || 'slide-x', slideDirection)}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                      transition={{ duration: 0.25, ease: [0.25, 1, 0.5, 1] }}
+                      className="w-full h-full flex-1 flex flex-col justify-start overflow-y-auto slide-density-normal"
+                    >
+                      {/* Active Editable Slide Content */}
+                      <EditorContent editor={slideEditor} className="w-full min-h-full flex flex-col" />
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
 
                 {/* Bottom Keyboard Shortcut Hint */}
                 <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-1.5 bg-slate-800/90 backdrop-blur-md rounded-full border border-slate-700/80 text-[11px] text-slate-400 pointer-events-none z-10 shadow-lg">
@@ -2793,38 +2926,55 @@ export default function App() {
                   </motion.div>
                )}
 
-               {/* Presentation Sidebar Toolkit */}
-               <div className="pres-toolbar fixed right-8 top-1/2 -translate-y-1/2 flex flex-col gap-3 z-[1020]">
-                <div className="bg-[var(--bg-primary)]/90 backdrop-blur-xl p-2 rounded-2xl shadow-2xl border border-[var(--border)] flex flex-col gap-2">
-                  <PresToolBtn active={presentTool === 'select'} onClick={() => setPresentTool('select')} icon={<MousePointer2 size={20} />} label="选择编辑" />
-                  <PresToolBtn active={presentTool === 'laser'} onClick={() => setPresentTool('laser')} icon={<Target size={20} className={presentTool === 'laser' ? "text-red-500" : ""} />} label="激光笔" />
-                  <PresToolBtn active={presentTool === 'pen'} onClick={() => setPresentTool('pen')} icon={<Pencil size={20} />} label="画笔工具" />
-                  <PresToolBtn active={presentTool === 'eraser'} onClick={() => setPresentTool('eraser')} icon={<Eraser size={20} />} label="橡皮擦" />
-                  <div className="h-px bg-[var(--border)] mx-2 my-1" />
-                  <div className="flex flex-col gap-2 items-center py-2">
+               {/* Presentation Sidebar Toolkit (Compact Sleek Floating Bar) */}
+               <div className="pres-toolbar fixed right-3 top-1/2 z-[1020] select-none transition-all">
+                <div className="bg-slate-900/90 backdrop-blur-xl p-1 rounded-xl shadow-xl border border-slate-700/80 flex flex-col gap-0.5 items-center">
+                  <PresToolBtn active={presentTool === 'select'} onClick={() => setPresentTool('select')} icon={<MousePointer2 size={15} />} label="选择编辑" />
+                  <PresToolBtn active={presentTool === 'laser'} onClick={() => setPresentTool('laser')} icon={<Target size={15} className={presentTool === 'laser' ? "text-red-400" : ""} />} label="激光笔" />
+                  <PresToolBtn active={presentTool === 'pen'} onClick={() => setPresentTool('pen')} icon={<Pencil size={15} />} label="画笔工具" />
+                  <PresToolBtn active={presentTool === 'eraser'} onClick={() => setPresentTool('eraser')} icon={<Eraser size={15} />} label="橡皮擦" />
+                  
+                  <div className="w-4 h-px bg-slate-800/80 my-0.25" />
+                  
+                  <PresToolBtn active={false} onClick={handlePresUndo} disabled={!canPresUndo} icon={<Undo size={15} />} label="撤销编辑 (Ctrl+Z)" />
+                  <PresToolBtn active={false} onClick={handlePresRedo} disabled={!canPresRedo} icon={<Redo size={15} />} label="重做编辑 (Ctrl+Y)" />
+                  
+                  <div className="w-4 h-px bg-slate-800/80 my-0.25" />
+                  
+                  <div className="flex flex-col gap-0.5 items-center py-0.25">
                     {[3, 6, 12].map(size => (
-                      <button key={size} onClick={() => setPresentSize(size)} className={`w-6 h-6 rounded-lg border transition-all flex items-center justify-center ${presentSize === size ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-white border-slate-100 text-slate-400'}`}>
-                        <div className="bg-current rounded-full" style={{ width: size, height: size }} />
+                      <button key={size} onClick={() => setPresentSize(size)} className={`w-4 h-4 rounded-sm border transition-all flex items-center justify-center cursor-pointer ${presentSize === size ? 'bg-blue-500/20 border-blue-400 text-blue-400' : 'bg-slate-800/80 border-slate-700/80 text-slate-400 hover:text-slate-200'}`} title={`笔触大小: ${size}px`}>
+                        <div className="bg-current rounded-full" style={{ width: Math.min(size, 7), height: Math.min(size, 7) }} />
                       </button>
                     ))}
                   </div>
-                  <div className="h-px bg-[var(--border)] mx-2 my-1" />
-                  <div className="flex flex-col gap-2 items-center py-2">
+                  
+                  <div className="w-4 h-px bg-slate-800/80 my-0.25" />
+                  
+                  <div className="flex flex-col gap-0.5 items-center py-0.25">
                     {['#ef4444', '#22c55e', '#3b82f6', '#1e293b'].map(color => (
-                      <button key={color} onClick={() => { setPresentColor(color); setPresentTool('pen'); }} className={`w-4 h-4 rounded-full border-2 transition-transform hover:scale-125 ${presentColor === color ? 'border-white ring-2 ring-blue-400' : 'border-transparent'}`} style={{ backgroundColor: color }} />
+                      <button key={color} onClick={() => { setPresentColor(color); setPresentTool('pen'); }} className={`w-3 h-3 rounded-full border transition-transform hover:scale-125 cursor-pointer ${presentColor === color ? 'border-white ring-1 ring-blue-500/80 scale-110' : 'border-slate-700/80'}`} style={{ backgroundColor: color }} title={`画笔颜色: ${color}`} />
                     ))}
                   </div>
-                  <div className="h-px bg-[var(--border)] mx-2 my-1" />
-                  <PresToolBtn active={showCountdownModal} onClick={() => setShowCountdownModal(true)} icon={<Timer size={20} />} label="设置倒计时" />
-                  {!isCountdownMode && <PresToolBtn active={showTimer} onClick={() => setShowTimer(!showTimer)} icon={<Timer size={20} className="opacity-50" />} label="显示时长" />}
-                  <PresToolBtn active={showStudentPickerModal} onClick={() => setShowStudentPickerModal(true)} icon={<UserCheck size={20} className="text-amber-500 hover:scale-110 transition-transform" />} label="随机点名 (转盘)" />
+                  
+                  <div className="w-4 h-px bg-slate-800/80 my-0.25" />
+                  
+                  <PresToolBtn active={showCountdownModal} onClick={() => setShowCountdownModal(true)} icon={<Timer size={15} />} label="设置倒计时" />
+                  {!isCountdownMode && <PresToolBtn active={showTimer} onClick={() => setShowTimer(!showTimer)} icon={<Timer size={15} className="opacity-50" />} label="显示时长" />}
+                  <PresToolBtn active={showStudentPickerModal} onClick={() => setShowStudentPickerModal(true)} icon={<UserCheck size={15} className="text-amber-400" />} label="随机点名 (转盘)" />
+                  <PresToolBtn 
+                    active={showPresBgModal} 
+                    onClick={() => setShowPresBgModal(true)} 
+                    icon={<Palette size={15} className="text-indigo-400" />} 
+                    label="背景与纹理" 
+                  />
                   <PresToolBtn 
                     active={false} 
                     onClick={() => {
                       clearCanvas();
                       showToast('已一键清空屏幕标注');
                     }} 
-                    icon={<Trash2 size={20} className="text-red-500 hover:text-red-600" />} 
+                    icon={<Trash2 size={15} className="text-red-400 hover:text-red-300" />} 
                     label="一键清屏" 
                   />
                 </div>
@@ -3180,50 +3330,124 @@ export default function App() {
                     </div>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <Type size={14} /> 文本与格式排版
-                      </h4>
-                      <div className="space-y-2.5">
-                        <ShortcutRow label="文本加粗" keys={['Ctrl', 'B']} />
-                        <ShortcutRow label="文本斜体" keys={['Ctrl', 'I']} />
-                        <ShortcutRow label="文本高亮" keys={['Ctrl', 'Shift', 'H']} />
-                        <ShortcutRow label="一级 / 二级标题" keys={['Ctrl', 'Alt', '1 / 2']} />
-                        <ShortcutRow label="无序列表" keys={['Ctrl', 'Shift', '8']} />
-                        <ShortcutRow label="有序列表" keys={['Ctrl', 'Shift', '7']} />
-                        <ShortcutRow label="任务清单 (待办)" keys={['Ctrl', 'Shift', '9']} />
-                        <ShortcutRow label="块引用" keys={['Ctrl', 'Shift', 'B']} />
-                        <ShortcutRow label="行内代码" keys={['Ctrl', 'E']} />
-                        <ShortcutRow label="代码块" keys={['Ctrl', 'Alt', 'C']} />
-                        <ShortcutRow label="标题补全建议" keys={['#', 'Space']} />
-                        <ShortcutRow label="Emoji 表情选择" keys={[':']} />
-                      </div>
+                  <div className="space-y-6">
+                    {/* Search Bar */}
+                    <div className="relative">
+                      <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        value={shortcutFilter}
+                        onChange={(e) => setShortcutFilter(e.target.value)}
+                        placeholder="搜索快捷键或功能... (例如: 加粗, 保存, F11, AI, 高亮, 标题)"
+                        className="w-full pl-10 pr-8 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                      />
+                      {shortcutFilter && (
+                        <button
+                          onClick={() => setShortcutFilter('')}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold bg-slate-200 rounded-full w-4 h-4 flex items-center justify-center cursor-pointer"
+                        >
+                          ×
+                        </button>
+                      )}
                     </div>
 
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <Layout size={14} /> 系统功能与辅助工具
-                      </h4>
-                      <div className="space-y-2.5">
-                        <ShortcutRow label="保存文档" keys={['Ctrl', 'S']} />
-                        <ShortcutRow label="另存为" keys={['Ctrl', 'Shift', 'S']} />
-                        <ShortcutRow label="新建空白文档" keys={['Ctrl', 'Alt', 'N']} />
-                        <ShortcutRow label="打开本地文件" keys={['Ctrl', 'O']} />
-                        <ShortcutRow label="撤销操作" keys={['Ctrl', 'Z']} />
-                        <ShortcutRow label="重做操作" keys={['Ctrl', 'Y']} />
-                        <ShortcutRow label="一键智能排版" keys={['悬浮栏 ✨']} />
-                        <ShortcutRow label="AI 智能助手" keys={['点击 AI 图标']} />
-                        <ShortcutRow label="帮助中心" keys={['Ctrl', '/']} />
-                        <ShortcutRow label="全屏放映演示" keys={['F11']} />
-                        <ShortcutRow label="随机点名转盘" keys={['放映栏 🎯']} />
-                        <ShortcutRow label="放映倒计时" keys={['放映栏 ⏱️']} />
-                        <div className="pt-3 mt-3 border-t border-slate-100">
-                          <p className="text-xs text-slate-500 leading-relaxed">
-                            <span className="font-bold text-[var(--accent)]">💡 技巧：</span>选中文本唤起悬浮工具栏可即时使用“一键智能排版”自动修正空格与列表，放映模式下提供画笔圈画与转盘互动功能。
-                          </p>
+                    {/* Category Grids */}
+                    {(() => {
+                      const allShortcutData = [
+                        { category: '📝 文本格式与排版', icon: <Type size={14} className="text-blue-500" />, items: [
+                          { label: '文本加粗', keys: ['Ctrl', 'B'], description: '加粗选中文本或切换加粗模式', badge: '常用' },
+                          { label: '文本斜体', keys: ['Ctrl', 'I'], description: '倾斜选中文本', badge: '常用' },
+                          { label: '文本背景高亮', keys: ['Ctrl', 'Shift', 'H'], description: '给选中文本叠加亮色背景', badge: '高频' },
+                          { label: '一级 / 二级标题', keys: ['Ctrl', 'Alt', '1 / 2'], description: '快速应用一/二级标题结构' },
+                          { label: '无序列表', keys: ['Ctrl', 'Shift', '8'], description: '转化为圆点项目符号列表' },
+                          { label: '有序列表', keys: ['Ctrl', 'Shift', '7'], description: '转化为数字序号列表' },
+                          { label: '交互待办清单', keys: ['Ctrl', 'Shift', '9'], description: '插入前端可直接点击勾选的任务框' },
+                          { label: '块级引用', keys: ['Ctrl', 'Shift', 'B'], description: '插入带凸显背景线的引用段落' },
+                          { label: '行内代码', keys: ['Ctrl', 'E'], description: '将文字转化为单行代码标签' },
+                          { label: '多语言代码块', keys: ['Ctrl', 'Alt', 'C'], description: '插入带语法高亮的框体代码' },
+                          { label: '标题快速补全', keys: ['#', 'Space'], description: '行首键入 # 和空格自动切标题' },
+                          { label: 'Emoji 表情面板', keys: [':'], description: '键入冒号快速搜索并插入表情' },
+                        ]},
+                        { category: '📂 文档与文件管理', icon: <Folder size={14} className="text-amber-500" />, items: [
+                          { label: '保存当前文档', keys: ['Ctrl', 'S'], description: '实时保存修改至本地或浏览器', badge: '核心' },
+                          { label: '文档另存为', keys: ['Ctrl', 'Shift', 'S'], description: '导出为新 Markdown 或 HTML 文件' },
+                          { label: '新建空白文档', keys: ['Ctrl', 'Alt', 'N'], description: '建立新的空白编辑视界' },
+                          { label: '打开本地文件', keys: ['Ctrl', 'O'], description: '导入本地 .md 或 .txt 文本' },
+                          { label: '撤销上一步', keys: ['Ctrl', 'Z'], description: '回退一步历史修改' },
+                          { label: '重做下一步', keys: ['Ctrl', 'Y'], description: '恢复撤销的历史改动' },
+                          { label: '高级导出选项', keys: ['Ctrl', 'Shift', 'P'], description: '唤起 PDF / 图片 / HTML 导出' },
+                        ]},
+                        { category: '📺 全屏 PPT 演示放映', icon: <Monitor size={14} className="text-purple-500" />, items: [
+                          { label: '开启 / 退出全屏放映', keys: ['F11'], description: '一键将文档转化为全屏 PPT', badge: '特色' },
+                          { label: '上一页 / 下一页', keys: ['←', '→'], description: '使用键盘方向键或 PageUp/PageDown' },
+                          { label: '顺序下翻幻灯片', keys: ['Space', 'Enter'], description: '按空格或回车播放下一页' },
+                          { label: '退出放映模式', keys: ['Esc'], description: '关闭放映并返回视界编辑器' },
+                          { label: '幻灯片分页符', keys: ['---'], description: '文档中使用三连减号划分幻灯片' },
+                          { label: '放映互动工具栏', keys: ['右侧工具'], description: '提供画笔、激光笔、倒计时与转盘' },
+                        ]},
+                        { category: '🤖 AI 助手与智能排版', icon: <SparklesIcon size={14} className="text-emerald-500" />, items: [
+                          { label: '选区浮动工具栏', keys: ['选中文本'], description: '自动浮现高亮、大小字、智能排版', badge: '高效' },
+                          { label: '一键智能格式化', keys: ['浮动栏 ✨'], description: '自动修正中英文空格与盘古排版规范', badge: '推荐' },
+                          { label: 'AI 交互助手', keys: ['右上角 AI'], description: '文章润色、段落总结、多语翻译与续写' },
+                          { label: '随时打开帮助', keys: ['Ctrl', '/'], description: '随时唤起本快捷键与新手教程中心' },
+                        ]},
+                      ];
+
+                      const filterQuery = shortcutFilter.trim().toLowerCase();
+
+                      const filteredCategories = allShortcutData.map(cat => ({
+                        ...cat,
+                        items: cat.items.filter(item => 
+                          !filterQuery || 
+                          item.label.toLowerCase().includes(filterQuery) ||
+                          item.description.toLowerCase().includes(filterQuery) ||
+                          item.keys.some(k => k.toLowerCase().includes(filterQuery)) ||
+                          cat.category.toLowerCase().includes(filterQuery)
+                        )
+                      })).filter(cat => cat.items.length > 0);
+
+                      if (filteredCategories.length === 0) {
+                        return (
+                          <div className="py-12 text-center text-slate-400 space-y-3">
+                            <Keyboard size={32} className="mx-auto text-slate-300" />
+                            <p className="text-xs">未找到包含 “<span className="text-slate-600 font-bold">{shortcutFilter}</span>” 的快捷键说明</p>
+                            <button
+                              onClick={() => setShortcutFilter('')}
+                              className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                            >
+                              清除搜索条件
+                            </button>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {filteredCategories.map((cat, idx) => (
+                            <div key={idx} className="bg-slate-50/50 p-4 rounded-2xl border border-slate-100 space-y-2">
+                              <h4 className="text-xs font-bold text-slate-500 tracking-wider mb-3 flex items-center gap-2 pb-2 border-b border-slate-200/60">
+                                {cat.icon}
+                                <span>{cat.category}</span>
+                              </h4>
+                              <div className="space-y-1">
+                                {cat.items.map((item, iIdx) => (
+                                  <ShortcutRow
+                                    key={iIdx}
+                                    label={item.label}
+                                    keys={item.keys}
+                                    description={item.description}
+                                    badge={item.badge}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                      </div>
+                      );
+                    })()}
+
+                    <div className="pt-3 border-t border-slate-100 text-xs text-slate-400 flex items-center justify-between">
+                      <span>💡 提示：按 <kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded font-mono text-[10px] text-slate-600">Ctrl + /</kbd> 也可快速随时打开本帮助中心。</span>
                     </div>
                   </div>
                 )}
@@ -3247,6 +3471,30 @@ export default function App() {
 
       {/* Support / Sponsorship Modal */}
       <SponsorModal isOpen={showSponsorModal} onClose={() => setShowSponsorModal(false)} showToast={showToast} />
+
+      {/* Presentation Background & Pattern Modal */}
+      <PresBgModal
+        isOpen={showPresBgModal}
+        onClose={() => setShowPresBgModal(false)}
+        config={presBgConfig}
+        onChange={(newConfig) => {
+          setPresBgConfig(newConfig);
+          try {
+            localStorage.setItem('fluxmark_pres_bg', JSON.stringify(newConfig));
+          } catch (e) {
+            console.error('Failed to save presentation background config:', e);
+          }
+        }}
+        onReset={() => {
+          setPresBgConfig(DEFAULT_PRES_BG_CONFIG);
+          try {
+            localStorage.removeItem('fluxmark_pres_bg');
+          } catch (e) {
+            console.error(e);
+          }
+          showToast('已恢复默认 Slate 质感放映背景');
+        }}
+      />
 
       {/* --- Countdown Timer Modal --- */}
       <AnimatePresence>
@@ -3485,13 +3733,25 @@ function ThemeButton({ active, icon, onClick, title }: { active: boolean, icon: 
   );
 }
 
-function ShortcutRow({ label, keys }: { label: string, keys: string[] }) {
+function ShortcutRow({ label, keys, description, badge }: { label: string, keys: string[], description?: string, badge?: string }) {
   return (
-    <div className="flex items-center justify-between group">
-      <span className="text-sm text-slate-600 font-medium">{label}</span>
-      <div className="flex gap-1">
+    <div className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-xl transition-all border border-transparent hover:border-slate-200/80 group">
+      <div className="flex flex-col gap-0.5 pr-2 min-w-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs text-slate-800 font-bold group-hover:text-[var(--accent)] transition-colors">{label}</span>
+          {badge && (
+            <span className="px-1.5 py-0.2 bg-blue-50 text-[var(--accent)] text-[10px] font-bold rounded-md border border-blue-100/80">
+              {badge}
+            </span>
+          )}
+        </div>
+        {description && (
+          <span className="text-[11px] text-slate-400 leading-tight truncate">{description}</span>
+        )}
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
         {keys.map((k, i) => (
-          <kbd key={i} className="px-1.5 py-0.5 min-w-[24px] text-center bg-slate-100 border border-slate-200 rounded text-[10px] font-bold text-slate-500 shadow-sm font-mono uppercase">
+          <kbd key={i} className="px-2 py-0.5 min-w-[24px] text-center bg-white border border-slate-200 rounded-lg text-[10px] font-extrabold text-slate-600 shadow-sm font-mono uppercase tracking-wider group-hover:border-blue-300 group-hover:text-[var(--accent)] transition-all">
             {k}
           </kbd>
         ))}
@@ -3512,12 +3772,19 @@ function FloatingBtn({ icon, onClick, label }: { icon: React.ReactNode, onClick:
   );
 }
 
-function PresToolBtn({ active, icon, onClick, label }: { active: boolean, icon: React.ReactNode, onClick: () => void, label: string }) {
+function PresToolBtn({ active, icon, onClick, label, disabled }: { active: boolean, icon: React.ReactNode, onClick: () => void, label: string, disabled?: boolean }) {
   return (
     <button 
       onClick={onClick}
+      disabled={disabled}
       title={label}
-      className={`p-3 rounded-xl transition-all cursor-pointer flex items-center justify-center ${active ? 'bg-[var(--accent)] text-white shadow-lg' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]'}`}
+      className={`p-1.5 rounded-lg transition-all flex items-center justify-center ${
+        disabled 
+          ? 'opacity-30 cursor-not-allowed hover:bg-transparent text-slate-400' 
+          : active 
+            ? 'bg-blue-600 text-white shadow-md cursor-pointer' 
+            : 'text-slate-300 hover:bg-slate-800 hover:text-white cursor-pointer'
+      }`}
     >
       {icon}
     </button>
@@ -3526,72 +3793,138 @@ function PresToolBtn({ active, icon, onClick, label }: { active: boolean, icon: 
 
 // --- 初始示例模板内容 ---
 const initialMarkdown = `
-# 🌟 欢迎使用 FluxMark 智能文档编辑器
+# 🌟 欢迎使用 FluxMark 智能文档与全屏演示平台
 
-FluxMark 是一款为您精心打造的**全能型 Markdown 创作空间**，融兼**沉浸式写作**、**AI 助手**、**交互式任务清单**、**数学公式**与**全屏放映**功能。
+FluxMark 是一款专注于**极致创作体验**的现代 Markdown 编辑器。它完美融合了**沉浸式写作**、**AI 智能润色**、**交互式任务清单**、**KaTeX 科学公式**、**多语言代码高亮**以及**全屏 PPT 演示放映**等核心功能。
 
----
-
-## 🎯 快速体验任务清单 (Task List)
-
-- [x] **开启 FluxMark**：享受极其丝滑的沉浸式排版与实时预览
-- [x] **智能格式排版**：体验快捷工具栏中的 ✨ **一键智能排版** 优化间距
-- [ ] **交互复选框**：直接点击前端方框切换待办任务状态
-- [ ] **AI 大模型助手**：点击右上角 AI 图标唤起智能写作与修改建议
-- [ ] **全屏演示放映**：按 \`F11\` 或点击顶部放映按钮转换为幻灯片展示
+> 💡 **设计理念**：让思想自由流淌，让表达精美非凡。无论是撰写技术文档、学术论文、会议纪要，还是现场演讲汇报，FluxMark 都能为您提供无缝且优雅的操作体验。
 
 ---
 
-## 📝 文本排版与格式演示
+## 🎯 快速上手体验清单 (Task List)
 
-您可以轻松对文档进行 ==文本重点高亮==、**加粗文本**、*斜体文字*、~删除线~ 以及专业的上标 $X^2$ 和下标 $H_2O$ 处理。
+您可以直接在下方**点击复选框**开启或完成任务：
 
-> 💡 **设计哲学**：专注与美感兼备。打破传统编辑器与预览窗口的界限，让创作更加自然流畅。
+- [x] **开启 FluxMark**：感受无缝即时渲染与高颜值 Typography 字体排版
+- [x] **体验丰富文本修饰**：选中文字后试试 **加粗**、*斜体*、==重点行内高亮== 与 ~删除线~
+- [x] **一键智能格式排版**：选中文本在浮动工具栏中点击 ✨ **一键智能排版** 修正中英文空格与盘古排版规范
+- [ ] **探索 KaTeX 科学公式**：体验行内 $E = mc^2$ 与块级微积分 / 线性代数方程
+- [ ] **AI 智能助手协作**：点击右上角 AI 图标进行文章润色、段落总结或多语言翻译
+- [ ] **全屏 PPT 演示放映**：按 \`F11\` 或点击顶部放映按钮，即可将包含 \`---\` 的文档直接转为全屏幻灯片展示！
 
 ---
 
-## 📐 数学公式与科学计算 (KaTeX)
+## ✍️ 文本样式与智能排版演示
 
-支持优雅的行内公式如 $E = mc^2$ 以及复杂的块级数学方程：
+FluxMark 支持丰富的标准及扩展 Markdown 格式，帮助您清晰层级化地表达观点：
+
+### 1. 文本强调与标记
+- **粗体强调**：输入 \`**加粗文本**\` 或 \`****双重加粗****\` 获得 **强烈的视觉焦点**
+- *斜体排版*：使用 \`*斜体文字*\` 或 \`_斜体强调_\` 表达 *精致的文意倾斜*
+- ***粗斜体组合***：同时触发 \`***粗斜体***\` 呈现 ***强烈瞩目效果***
+- ==重点高亮==：使用 \`==高亮包裹==\` 为关键短语涂上 ==醒目的荧光高亮色==
+- ~删除文本~：使用 \`~删除线~\` 标注 ~废弃或修正内容~
+- **上标与下标**：支持数学上标 $X^2 + Y^2 = Z^2$ 以及化学分子式 $H_2O$ 与 $CO_2$
+
+### 2. 块级引用 (Blockquotes)
+> 🚀 **高效创作金句**：
+> “好的编辑器不应该打断创作逻辑，而应该像延伸的思维神经一样，顺应你的灵感发散与归纳。”
+> 
+> —— *FluxMark 设计团队*
+
+---
+
+## 📐 科学计算与数学公式 (KaTeX Engine)
+
+FluxMark 内置了强大的 **KaTeX 数学渲染引擎**，能够秒级渲染专业公式：
+
+1. **行内公式 (Inline Math)**：比如欧拉恒等式 $e^{i\pi} + 1 = 0$，或正态分布概率密度函数 $f(x) = \frac{1}{\sigma \sqrt{2\pi}} e^{-\frac{1}{2}\left(\frac{x-\mu}{\sigma}\right)^2}$。
+2. **块级高阶方程 (Block Math)**：
 
 $$
 \int_{-\infty}^{+\infty} e^{-x^2} dx = \sqrt{\pi}
 $$
 
 $$
-\mathbf{A} \mathbf{x} = \lambda \mathbf{x}
+\mathbf{A} \mathbf{x} = \lambda \mathbf{x} \quad \implies \quad \det(\mathbf{A} - \lambda \mathbf{I}) = 0
 $$
 
 ---
 
-## 💻 代码高亮与工程集成
+## 💻 多语言代码渲染与工程集成
 
-内置多语言语法高亮，支持一键复制代码与智能展示：
+针对程序员与技术作者，内置语法高亮与一键代码复制功能：
 
 \`\`\`typescript
-// FluxMark 示例代码
-interface AppConfig {
-  theme: 'light' | 'dark';
-  aiPowered: boolean;
-  smartFormatting: boolean;
+// FluxMark 核心架构示例
+interface EditorCapabilities {
+  aiAssistant: boolean;
+  katexEngine: boolean;
+  pptPresentation: boolean;
+  theme: 'light' | 'dark' | 'sepia';
 }
 
-function initFluxMark(config: AppConfig): void {
-  console.log('🚀 FluxMark 编辑器已成功初始化');
+class FluxMarkApp {
+  public static init(config: EditorCapabilities): void {
+    console.log('🚀 FluxMark 编辑引擎已就绪，体验流畅创作之旅！');
+  }
 }
+
+// 启动编辑器
+FluxMarkApp.init({
+  aiAssistant: true,
+  katexEngine: true,
+  pptPresentation: true,
+  theme: 'light',
+});
+\`\`\`
+
+\`\`\`python
+# 数据分析与 AI 计算示例
+import numpy as np
+
+def calculate_confidence(scores):
+    weights = np.exp(scores) / np.sum(np.exp(scores), axis=-1, keepdims=True)
+    return np.max(weights, axis=-1)
+
+print("Confidence Scores:", calculate_confidence([2.0, 1.0, 0.1]))
 \`\`\`
 
 ---
 
-## 📊 快捷功能对照
+## 📊 结构化数据与表格 (Markdown Tables)
 
-| 功能模块 | 对应快捷键 / 入口 | 作用说明 |
-| :--- | :--- | :--- |
-| **撤销 / 重做** | \`Ctrl + Z\` / \`Ctrl + Y\` | 快速恢复与重做历史修改 |
-| **一键智能排版** | 快速悬浮工具栏 ✨ | 自动消除多余空格与格式规范 |
-| **任务清单** | \`Ctrl + Shift + 9\` | 快速插入可交互的勾选框清单 |
-| **AI 写作助手** | 右上角 AI 按钮 | 调用大模型辅助生成与润色 |
+| 功能模块 | 对应快捷键 / 操作入口 | 功能说明 | 推荐度 |
+| :--- | :---: | :--- | :---: |
+| **保存文档** | \`Ctrl + S\` | 实时写入文件或更新本地缓存 | ⭐⭐⭐⭐⭐ |
+| **一键智能排版** | 选区浮动栏 ✨ | 自动规范中英文间距与符号格式 | ⭐⭐⭐⭐⭐ |
+| **全屏 PPT 演示** | \`F11\` / 放映图标 | 瞬间将 Markdown 转为演示幻灯片 | ⭐⭐⭐⭐⭐ |
+| **AI 智能对话** | 右上角 AI 图标 | 提供润色、总结、翻译与续写辅助 | ⭐⭐⭐⭐⭐ |
+| **插入数学公式** | \`KaTeX\` / \`$$\` | 秒级渲染专业排版的数学方程 | ⭐⭐⭐⭐ |
+
+---
+
+## 📺 第二页：全屏 PPT 演示放映模式 (Presentation Page 2)
+
+在 Markdown 文档中使用 **三连减号 \`---\`** 即可划定幻灯片分页！
+
+按 \`F11\` 或点击顶部工具栏的 **“放映”** 按钮，系统会自动将文档切分为全屏幻灯片，并开启强大现场互动工具：
+
+- 🖋️ **画笔与荧光笔圈画**：在演示时直接在屏幕上作图标注重点
+- 🧹 **一键橡皮擦与清屏**：轻松抹去批注迹象
+- 🔦 **激光笔聚光焦点**：引导听众视线焦点
+- ⏱️ **会议演讲倒计时**：掌控现场报告节奏
+- 🎯 **随机点名转盘**：课堂与团队会议现场互动神器
+
+---
+
+## 💡 常用快捷键速查表 (Quick Shortcuts)
+
+- \`Ctrl + B\`：文本加粗 / \`Ctrl + I\`：文本斜体 / \`Ctrl + Shift + H\`：文本高亮
+- \`Ctrl + Alt + 1\`：一级标题 / \`Ctrl + Shift + 9\`：待办清单
+- \`Ctrl + S\`：保存当前文档 / \`Ctrl + /\`：随时唤起帮助与快捷键中心
 
 ---
 _FluxMark - 灵感流淌，极致表达。_
 `;
+

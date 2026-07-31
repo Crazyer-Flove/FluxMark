@@ -77,6 +77,25 @@
   transition: font-family 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Explicit Bold & Italic Typography Styles */
+.prose-custom strong, .ProseMirror strong,
+.prose-custom b, .ProseMirror b {
+  font-weight: 700 !important;
+}
+
+.prose-custom em, .ProseMirror em,
+.prose-custom i, .ProseMirror i {
+  font-style: italic !important;
+}
+
+.prose-custom strong em, .ProseMirror strong em,
+.prose-custom em strong, .ProseMirror em strong,
+.prose-custom b i, .ProseMirror b i,
+.prose-custom i b, .ProseMirror i b {
+  font-weight: 700 !important;
+  font-style: italic !important;
+}
+
 .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
@@ -333,142 +352,102 @@ pre code.hljs {
   position: relative;
 }
 
-/* Presentation Mode Adaptive Typography Tiers for Short / Sparse Content */
-.slide-density-hero .ProseMirror {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  text-align: center;
-  min-height: 100%;
-  padding: 2rem 1rem;
-}
-
-.slide-density-hero .ProseMirror h1 {
-  font-size: clamp(2.75rem, 6.5vw, 6rem);
-  line-height: 1.15;
-  font-weight: 900;
-  border-bottom: none;
-  padding-bottom: 0;
-  margin-bottom: 1.5rem;
-  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.slide-density-hero .ProseMirror h2 {
-  font-size: clamp(2.25rem, 5vw, 4.5rem);
-  line-height: 1.2;
-  font-weight: 800;
-  border-bottom: none;
-  padding-bottom: 0;
-  margin-bottom: 1.25rem;
-}
-
-.slide-density-hero .ProseMirror h3 {
-  font-size: clamp(1.85rem, 3.8vw, 3.25rem);
-  font-weight: 700;
-  margin-bottom: 1rem;
-}
-
-.slide-density-hero .ProseMirror p {
-  font-size: clamp(1.5rem, 3vw, 2.5rem);
-  line-height: 1.6;
-  max-width: 50ch;
-  margin-left: auto;
-  margin-right: auto;
-  margin-bottom: 1.25rem;
-  font-weight: 500;
-}
-
-.slide-density-hero .ProseMirror ul,
-.slide-density-hero .ProseMirror ol {
-  font-size: clamp(1.35rem, 2.6vw, 2.2rem);
-  text-align: left;
-  display: inline-block;
-  margin-left: auto;
-  margin-right: auto;
-  line-height: 1.7;
-}
-
-.slide-density-hero .ProseMirror li {
-  margin-bottom: 0.75rem;
-}
-
-/* Sparse Mode (Short content: 40-120 chars) */
-.slide-density-sparse .ProseMirror {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  min-height: 100%;
-  padding: 1.5rem 0.5rem;
-}
-
-.slide-density-sparse .ProseMirror h1 {
-  font-size: clamp(2.25rem, 4.5vw, 4.25rem);
-  line-height: 1.2;
-  font-weight: 800;
-  margin-bottom: 1.25rem;
-}
-
-.slide-density-sparse .ProseMirror h2 {
-  font-size: clamp(1.85rem, 3.8vw, 3.5rem);
-  line-height: 1.25;
-  font-weight: 700;
-  margin-bottom: 1rem;
-}
-
-.slide-density-sparse .ProseMirror h3 {
-  font-size: clamp(1.5rem, 3vw, 2.75rem);
-  font-weight: 700;
-  margin-bottom: 0.85rem;
-}
-
-.slide-density-sparse .ProseMirror p {
-  font-size: clamp(1.25rem, 2.4vw, 2rem);
-  line-height: 1.65;
-  margin-bottom: 1rem;
-}
-
-.slide-density-sparse .ProseMirror ul,
-.slide-density-sparse .ProseMirror ol {
-  font-size: clamp(1.15rem, 2vw, 1.75rem);
-  line-height: 1.6;
-}
-
-.slide-density-sparse .ProseMirror li {
-  margin-bottom: 0.5rem;
-}
-
-/* Medium Mode (120-300 chars) */
+/* Presentation Mode Uniform Slide Typography (No auto-scaling distortion) */
+.slide-density-normal .ProseMirror,
+.slide-density-hero .ProseMirror,
+.slide-density-sparse .ProseMirror,
 .slide-density-medium .ProseMirror {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  min-height: 100%;
+  font-size: 1.125rem;
+  line-height: 1.7;
+  width: 100%;
 }
 
+.slide-density-normal .ProseMirror h1,
+.slide-density-hero .ProseMirror h1,
+.slide-density-sparse .ProseMirror h1,
 .slide-density-medium .ProseMirror h1 {
-  font-size: clamp(1.85rem, 3.5vw, 3rem);
+  font-size: clamp(2rem, 3.5vw, 2.75rem);
   line-height: 1.25;
+  font-weight: 800;
   margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
 }
 
+.slide-density-normal .ProseMirror h2,
+.slide-density-hero .ProseMirror h2,
+.slide-density-sparse .ProseMirror h2,
 .slide-density-medium .ProseMirror h2 {
   font-size: clamp(1.5rem, 2.8vw, 2.25rem);
   line-height: 1.3;
+  font-weight: 700;
   margin-bottom: 0.85rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.25rem;
 }
 
+.slide-density-normal .ProseMirror h3,
+.slide-density-hero .ProseMirror h3,
+.slide-density-sparse .ProseMirror h3,
+.slide-density-medium .ProseMirror h3 {
+  font-size: clamp(1.25rem, 2.2vw, 1.75rem);
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+
+.slide-density-normal .ProseMirror p,
+.slide-density-hero .ProseMirror p,
+.slide-density-sparse .ProseMirror p,
 .slide-density-medium .ProseMirror p {
-  font-size: clamp(1.1rem, 1.8vw, 1.45rem);
-  line-height: 1.6;
+  font-size: clamp(1.05rem, 1.6vw, 1.25rem);
+  line-height: 1.65;
   margin-bottom: 0.85rem;
 }
 
+.slide-density-normal .ProseMirror ul,
+.slide-density-hero .ProseMirror ul,
+.slide-density-sparse .ProseMirror ul,
 .slide-density-medium .ProseMirror ul,
+.slide-density-normal .ProseMirror ol,
+.slide-density-hero .ProseMirror ol,
+.slide-density-sparse .ProseMirror ol,
 .slide-density-medium .ProseMirror ol {
-  font-size: clamp(1.05rem, 1.6vw, 1.35rem);
+  font-size: clamp(1.05rem, 1.6vw, 1.25rem);
+  margin-bottom: 0.85rem;
+  padding-left: 1.5rem;
+}
+
+.slide-density-normal .ProseMirror img,
+.slide-density-hero .ProseMirror img,
+.slide-density-sparse .ProseMirror img,
+.slide-density-medium .ProseMirror img {
+  max-height: 52vh;
+  max-width: 100%;
+  object-fit: contain;
+  margin: 0.75rem auto;
+  border-radius: 0.75rem;
+  display: block;
+}
+
+.slide-density-normal .ProseMirror pre,
+.slide-density-hero .ProseMirror pre,
+.slide-density-sparse .ProseMirror pre,
+.slide-density-medium .ProseMirror pre {
+  max-height: 45vh;
+  overflow: auto;
+  font-size: 0.95rem;
+  margin: 0.75rem 0;
+  border-radius: 0.75rem;
+}
+
+.slide-density-normal .ProseMirror table,
+.slide-density-hero .ProseMirror table,
+.slide-density-sparse .ProseMirror table,
+.slide-density-medium .ProseMirror table {
+  max-width: 100%;
+  overflow-x: auto;
+  display: block;
+  margin: 0.75rem 0;
 }
 
 /* Laser Pointer Breathing Animation Effect */
@@ -487,5 +466,35 @@ pre code.hljs {
 
 .laser-dot-breath {
   animation: laser-breath 1.6s ease-in-out infinite;
+}
+
+/* Presentation Mode Compact Toolbar (.pres-toolbar) */
+.pres-toolbar {
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%) scale(0.9);
+  transform-origin: right center;
+  max-height: 82vh;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.pres-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.pres-toolbar > div {
+  padding: 0.25rem !important;
+  gap: 0.125rem !important;
+}
+
+.pres-toolbar button {
+  padding: 0.25rem !important;
+  border-radius: 0.375rem !important;
+}
+
+.pres-toolbar .w-5.h-px {
+  margin-top: 0.125rem !important;
+  margin-bottom: 0.125rem !important;
 }
 
