@@ -163,7 +163,7 @@ fluxmark/
 
 ```bash
 # 克隆仓库
-git clone https://github.com/your-username/fluxmark.git
+git clone https://github.com/Crazyer-Flove/FluxMark.git
 cd fluxmark
 
 # 安装项目依赖
