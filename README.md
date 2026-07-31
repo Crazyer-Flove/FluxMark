@@ -164,7 +164,7 @@ fluxmark/
 ```bash
 # 克隆仓库
 git clone https://github.com/Crazyer-Flove/FluxMark.git
-cd fluxmark
+cd FluxMark
 
 # 安装项目依赖
 npm install
