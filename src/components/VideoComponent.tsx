@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { NodeViewWrapper } from '@tiptap/react';
 import { Play, Pause, FastForward, Scissors, Settings2, Trash2, Maximize2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { getMediaBlobUrl } from '../utils/mediaRegistry';
 
 export const VideoComponent = ({ node, updateAttributes, deleteNode }: any) => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -11,6 +12,7 @@ export const VideoComponent = ({ node, updateAttributes, deleteNode }: any) => {
   const [showSettings, setShowSettings] = useState(false);
 
   const { src, playbackSpeed, startPos, endPos } = node.attrs;
+  const resolvedSrc = getMediaBlobUrl(src) || src;
 
   useEffect(() => {
     if (videoRef.current) {
@@ -70,7 +72,7 @@ export const VideoComponent = ({ node, updateAttributes, deleteNode }: any) => {
       <div className="relative group">
         <video
           ref={videoRef}
-          src={src}
+          src={resolvedSrc}
           className="w-full block bg-black"
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}

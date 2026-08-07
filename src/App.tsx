@@ -5,9 +5,9 @@ import {
   ChevronLeft, ChevronRight, Maximize2, ZoomIn, ZoomOut, PanelLeftClose, PanelLeft,
   Folder, FilePlus, ChevronDown, Superscript as SuperscriptIcon, Subscript as SubscriptIcon,
   Type, Palette, AlignCenter, AlignLeft, Trash2, Printer, MousePointer2, Pencil, Eraser, Timer, RefreshCcw, Target,
-  FileCode, Share2, HelpCircle, FileDown, Upload, Bold, Italic, List, ListTodo, Heading1, Heading2, Quote, Highlighter, Video as VideoIcon,
-  Undo, Redo, Wand2, Zap, Search,
-  AlertCircle, Check, Plus, BookOpen, Keyboard, UserCheck
+  FileCode, Share2, HelpCircle, FileDown, Upload, Bold, Italic, List, ListTodo, ListTree, Heading1, Heading2, Quote, Highlighter, Video as VideoIcon,
+  Undo, Redo, Wand2, Zap, Search, Eye, FolderOpen,
+  AlertCircle, Check, Plus, BookOpen, Keyboard, UserCheck, Table as TableIcon, Rows, Columns
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toCanvas } from 'html-to-image';
@@ -26,6 +26,8 @@ import { Markdown } from 'tiptap-markdown';
 import Placeholder from '@tiptap/extension-placeholder';
 import CharacterCount from '@tiptap/extension-character-count';
 import Image from 'tiptap-extension-resize-image';
+import { CustomImage } from './extensions/CustomImage';
+import { saveMediaToMedFolder, registerMediaBlob, getMediaBlobUrl, syncMediaToDirectory } from './utils/mediaRegistry';
 import { TextStyle } from '@tiptap/extension-text-style';
 import { Color } from '@tiptap/extension-color';
 import Highlight from '@tiptap/extension-highlight';
@@ -34,6 +36,7 @@ import Subscript from '@tiptap/extension-subscript';
 import TextAlign from '@tiptap/extension-text-align';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
+import { Table as TableExtension, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
 import { common, createLowlight } from 'lowlight';
 
 import { CustomCodeBlock } from './extensions/CustomCodeBlock';
@@ -52,6 +55,9 @@ import { ImageCropperModal } from './components/ImageCropperModal';
 import { PrivacyModal } from './components/PrivacyModal';
 import { SponsorModal } from './components/SponsorModal';
 import { PresBgModal, PresBgConfig, DEFAULT_PRES_BG_CONFIG, getPresBgStyle, renderPresPatternOverlay } from './components/PresBgModal';
+import { ResourceItem, PreviewImageInfo } from './types';
+import { ImagePreviewModal } from './components/ImagePreviewModal';
+import { NewFileModal } from './components/NewFileModal';
 import { executeSmartFormat } from './utils/smartFormat';
 import { Sparkles as SparklesIcon, ShieldCheck as ShieldCheckIcon, Heart as HeartIcon } from 'lucide-react';
 
@@ -273,7 +279,13 @@ export default function App() {
   const [isPresentation, setIsPresentation] = useState<boolean>(false);
   const [showSidebar, setShowSidebar] = useState<boolean>(true);
   const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>('outline');
-  const [resources, setResources] = useState<{ name: string, type: 'file' | 'folder', handle?: any }[]>([]);
+  const [resources, setResources] = useState<ResourceItem[]>([]);
+  const [currentDirectoryHandle, setCurrentDirectoryHandle] = useState<any | null>(null);
+  const [currentDirectoryName, setCurrentDirectoryName] = useState<string | null>(null);
+  const [showNewFileModal, setShowNewFileModal] = useState<boolean>(false);
+  const [previewImageInfo, setPreviewImageInfo] = useState<PreviewImageInfo | null>(null);
+  const [resourceFilter, setResourceFilter] = useState<'all' | 'file' | 'image'>('all');
+  const [resourceSearch, setResourceSearch] = useState<string>('');
   const [outline, setOutline] = useState<{ id: string, text: string, level: number, pos?: number }[]>([]);
   const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null);
   const [collapsedHeadings, setCollapsedHeadings] = useState<Record<string, boolean>>({});
@@ -402,7 +414,7 @@ export default function App() {
         placeholder: '在此输入您的内容，FluxMark 支持即时 Markdown 渲染...',
       }),
       CharacterCount,
-      Image.configure({
+      CustomImage.configure({
         allowBase64: true,
         HTMLAttributes: {
           class: 'resizable-image',
@@ -434,6 +446,15 @@ export default function App() {
       HeadingSuggestion,
       EmojiSuggestion,
       CustomFormattingInputRules,
+      TableExtension.configure({
+        resizable: true,
+        HTMLAttributes: {
+          class: 'border-collapse table-auto w-full my-4 border border-[var(--border)]',
+        },
+      }),
+      TableRow,
+      TableHeader,
+      TableCell,
     ],
     content: (() => {
       const saved = localStorage.getItem(FLUXMARK_STORAGE_KEY);
@@ -487,7 +508,7 @@ export default function App() {
         placeholder: '在此编辑本页幻灯片内容...',
       }),
       CharacterCount,
-      Image.configure({
+      CustomImage.configure({
         allowBase64: true,
         HTMLAttributes: {
           class: 'resizable-image',
@@ -519,6 +540,15 @@ export default function App() {
       HeadingSuggestion,
       EmojiSuggestion,
       CustomFormattingInputRules,
+      TableExtension.configure({
+        resizable: true,
+        HTMLAttributes: {
+          class: 'border-collapse table-auto w-full my-4 border border-[var(--border)]',
+        },
+      }),
+      TableRow,
+      TableHeader,
+      TableCell,
     ],
     content: '',
     editorProps: {
@@ -853,6 +883,78 @@ export default function App() {
     }
   };
 
+  // Jump to heading by text or pos (resilient search)
+  const jumpToHeadingByTextOrPos = (pos?: number | null, text?: string) => {
+    if (!editor) return;
+    let targetPos: number | null = null;
+
+    if (text) {
+      const cleanText = text.trim().toLowerCase();
+      editor.state.doc.descendants((node, nodePos) => {
+        if (node.type.name === 'heading' && node.textContent.trim().toLowerCase() === cleanText) {
+          if (targetPos === null) {
+            targetPos = nodePos;
+          }
+        }
+      });
+    }
+
+    if (targetPos === null && pos !== null && pos !== undefined) {
+      targetPos = pos;
+    }
+
+    if (targetPos !== null) {
+      scrollToHeading(targetPos);
+    } else {
+      showToast('未找到对应的标题位置');
+    }
+  };
+
+  // Automatically insert Table of Contents (H1-H3) at document top
+  const insertTableOfContents = () => {
+    if (!editor) return;
+
+    const h1ToH3Headings: { text: string; level: number; pos: number }[] = [];
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name === 'heading') {
+        const level = node.attrs.level;
+        if (level >= 1 && level <= 3) {
+          const text = node.textContent.trim();
+          if (text) {
+            h1ToH3Headings.push({ text, level, pos });
+          }
+        }
+      }
+    });
+
+    if (h1ToH3Headings.length === 0) {
+      showToast('未在文档中检测到 H1-H3 标题，请先添加标题后再插入目录');
+      return;
+    }
+
+    const itemsHtml = h1ToH3Headings.map(h => {
+      const indentClass = h.level === 1 
+        ? 'pl-0 font-bold text-blue-600 dark:text-blue-400' 
+        : h.level === 2 
+        ? 'pl-4 font-medium text-slate-700 dark:text-slate-300' 
+        : 'pl-8 text-slate-500 dark:text-slate-400';
+      const prefix = h.level === 1 ? '• ' : h.level === 2 ? '└ ' : '  └ ';
+      return `<li class="toc-item ${indentClass} py-0.5"><a href="#heading-${h.pos}" class="toc-link inline-flex items-center gap-1 hover:text-blue-500 hover:underline transition-colors cursor-pointer" data-toc-pos="${h.pos}" data-toc-text="${encodeURIComponent(h.text)}"><span class="opacity-60">${prefix}</span><span>${h.text}</span></a></li>`;
+    }).join('');
+
+    const tocBlockHtml = `<div class="toc-container my-6 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 shadow-2xs select-none" data-toc-block="true"><div class="flex items-center justify-between pb-2 mb-3 border-b border-slate-200 dark:border-slate-700"><div class="flex items-center gap-2 font-bold text-sm text-slate-800 dark:text-slate-200"><span class="text-blue-500">📋</span><span>文档目录 (Table of Contents)</span></div><span class="text-[10px] text-slate-400 font-mono">基于 H1-H3 标题 (${h1ToH3Headings.length} 项)</span></div><ul class="space-y-1 text-xs">${itemsHtml}</ul></div><p></p>`;
+
+    // Insert at position 0 (top of document)
+    editor.chain().focus('start').insertContent(tocBlockHtml).run();
+
+    const viewport = document.getElementById('editor-viewport');
+    if (viewport) {
+      viewport.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    showToast(`已在文档顶部自动生成目录 (${h1ToH3Headings.length} 项 H1-H3 标题)`);
+  };
+
   // 主题与字体切换
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -907,7 +1009,10 @@ export default function App() {
   }, [editor, handleSelectionUpdate]);
 
   // 样式应用
-  const applyStyle = (style: 'bold' | 'italic' | 'heading' | 'bullet' | 'task' | 'quote' | 'color' | 'size' | 'align' | 'clear' | 'highlight' | 'superscript' | 'subscript' | 'undo' | 'redo', value?: string | number) => {
+  const applyStyle = (
+    style: 'bold' | 'italic' | 'heading' | 'bullet' | 'task' | 'quote' | 'color' | 'size' | 'align' | 'clear' | 'highlight' | 'superscript' | 'subscript' | 'undo' | 'redo' | 'table' | 'addRowAfter' | 'addRowBefore' | 'deleteRow' | 'addColumnAfter' | 'addColumnBefore' | 'deleteColumn' | 'deleteTable' | 'toggleHeaderRow',
+    value?: string | number
+  ) => {
     if (!editor) return;
 
     switch (style) {
@@ -939,6 +1044,21 @@ export default function App() {
       case 'subscript': editor.chain().focus().toggleSubscript().run(); break;
       case 'size': editor.chain().focus().setMark('textStyle', { fontSize: value }).run(); break;
       case 'clear': editor.chain().focus().clearNodes().unsetAllMarks().unsetColor().run(); break;
+      case 'table':
+        if (editor.isActive('table')) {
+          editor.chain().focus().deleteTable().run();
+        } else {
+          editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+        }
+        break;
+      case 'addRowAfter': editor.chain().focus().addRowAfter().run(); break;
+      case 'addRowBefore': editor.chain().focus().addRowBefore().run(); break;
+      case 'deleteRow': editor.chain().focus().deleteRow().run(); break;
+      case 'addColumnAfter': editor.chain().focus().addColumnAfter().run(); break;
+      case 'addColumnBefore': editor.chain().focus().addColumnBefore().run(); break;
+      case 'deleteColumn': editor.chain().focus().deleteColumn().run(); break;
+      case 'deleteTable': editor.chain().focus().deleteTable().run(); break;
+      case 'toggleHeaderRow': editor.chain().focus().toggleHeaderRow().run(); break;
     }
     
     setSelection(s => ({ ...s, visible: false }));
@@ -1006,8 +1126,65 @@ export default function App() {
     }
   };
 
+  const scanDirectoryEntries = async (dirHandle: any, parentPath = ''): Promise<ResourceItem[]> => {
+    const items: ResourceItem[] = [];
+    try {
+      for await (const entry of dirHandle.values()) {
+        const relPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+        if (entry.kind === 'file') {
+          const ext = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
+          const isMarkdown = ['.md', '.txt', '.markdown'].includes(ext);
+          const isImage = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico', '.avif'].includes(ext);
+          const isVideo = ['.mp4', '.webm', '.ogg', '.mov', '.m4v', '.mkv'].includes(ext);
+          const isCode = ['.json', '.js', '.ts', '.html', '.css', '.jsx', '.tsx'].includes(ext);
+
+          let url: string | undefined = undefined;
+          let fileObj: File | undefined = undefined;
+          try {
+            fileObj = await entry.getFile();
+            if (fileObj) {
+              if (isImage || isVideo || parentPath === '.med' || relPath.startsWith('.med/')) {
+                url = registerMediaBlob(relPath, fileObj);
+              }
+            }
+          } catch (e) {
+            console.warn('Could not read file handle:', entry.name, e);
+          }
+
+          if (isMarkdown || isImage || isVideo || isCode) {
+            items.push({
+              id: relPath,
+              name: entry.name,
+              relativePath: relPath,
+              type: isMarkdown ? 'file' : isImage ? 'image' : isVideo ? ('video' as any) : 'code',
+              handle: entry,
+              file: fileObj,
+              size: fileObj?.size,
+              lastModified: fileObj?.lastModified,
+              url,
+            });
+          }
+        } else if (entry.kind === 'directory') {
+          if (parentPath.split('/').length < 2) {
+            const subChildren = await scanDirectoryEntries(entry, relPath);
+            items.push({
+              id: relPath,
+              name: entry.name,
+              relativePath: relPath,
+              type: 'folder',
+              handle: entry,
+              children: subChildren,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Directory scanning error:', err);
+    }
+    return items;
+  };
+
   const openDirectory = async () => {
-    // Favor hidden input logic for better reliability in potentially restricted environments (iframes)
     if (!('showDirectoryPicker' in window)) {
       directoryInputRef.current?.click();
       return;
@@ -1016,24 +1193,15 @@ export default function App() {
     try {
       // @ts-ignore - File System Access API
       const dirHandle = await window.showDirectoryPicker();
-      const newResources: { name: string, type: 'file' | 'folder', handle?: any }[] = [{ name: dirHandle.name, type: 'folder', handle: dirHandle }];
-      
-      // @ts-ignore
-      for await (const entry of dirHandle.values()) {
-        if (entry.kind === 'file' && (entry.name.endsWith('.md') || entry.name.endsWith('.txt'))) {
-          newResources.push({ name: entry.name, type: 'file', handle: entry });
-        }
-      }
-      
-      setResources(prev => {
-        const filtered = prev.filter(p => p.name !== dirHandle.name);
-        return [...filtered, ...newResources];
-      });
+      setCurrentDirectoryHandle(dirHandle);
+      setCurrentDirectoryName(dirHandle.name);
+
+      const items = await scanDirectoryEntries(dirHandle);
+      setResources(items);
       setActiveSidebarTab('resources');
-      showToast(`已打开工作区 ${dirHandle.name}`);
+      showToast(`已成功打开工作区 ${dirHandle.name} (${items.length} 个本地资源)`);
     } catch (err: any) {
       if (err.name === 'SecurityError' || err.name === 'NotAllowedError') {
-        // Fallback to hidden input if blocked by security policy or rejected
         directoryInputRef.current?.click();
       } else if (err.name !== 'AbortError') {
         console.error('Failed to open directory:', err);
@@ -1042,22 +1210,92 @@ export default function App() {
     }
   };
 
+  const refreshDirectory = async () => {
+    if (currentDirectoryHandle) {
+      const items = await scanDirectoryEntries(currentDirectoryHandle);
+      setResources(items);
+      showToast(`已刷新工作区 ${currentDirectoryName}`);
+    }
+  };
+
   const handleDirectoryOpen = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      const newResources: { name: string, type: 'file' | 'folder', handle?: any }[] = [];
-      const folderName = files[0].webkitRelativePath.split('/')[0] || '本地项目';
-      newResources.push({ name: folderName, type: 'folder' });
-      
+      const folderName = files[0].webkitRelativePath.split('/')[0] || '本地工作区';
+      setCurrentDirectoryName(folderName);
+      setCurrentDirectoryHandle(null);
+
+      const items: ResourceItem[] = [];
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        if (file.name.endsWith('.md') || file.name.endsWith('.txt')) {
-          newResources.push({ name: file.name, type: 'file', handle: file });
+        const relPath = file.webkitRelativePath.replace(`${folderName}/`, '');
+        const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+        const isMarkdown = ['.md', '.txt', '.markdown'].includes(ext);
+        const isImage = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico', '.avif'].includes(ext);
+        const isCode = ['.json', '.js', '.ts', '.html', '.css', '.jsx', '.tsx'].includes(ext);
+
+        let url: string | undefined = undefined;
+        if (isImage) {
+          url = URL.createObjectURL(file);
+        }
+
+        if (isMarkdown || isImage || isCode) {
+          items.push({
+            id: relPath || file.name,
+            name: file.name,
+            relativePath: relPath || file.name,
+            type: isMarkdown ? 'file' : isImage ? 'image' : 'code',
+            handle: file,
+            file,
+            size: file.size,
+            lastModified: file.lastModified,
+            url,
+          });
         }
       }
-      setResources(prev => [...prev, ...newResources]);
+
+      setResources(items);
       setActiveSidebarTab('resources');
-      showToast(`已打开项目 ${folderName}`);
+      showToast(`已打开本地项目 ${folderName} (${items.length} 个资源文件)`);
+    }
+  };
+
+  const handleCreateNewFileInWorkspace = async (fileName: string) => {
+    if (currentDirectoryHandle) {
+      try {
+        const fileHandle = await currentDirectoryHandle.getFileHandle(fileName, { create: true });
+        const writable = await fileHandle.createWritable();
+        const title = fileName.replace(/\.md$/, '');
+        const initialText = `# ${title}\n\n开始编写 ${title}...\n`;
+        await writable.write(initialText);
+        await writable.close();
+
+        setDocName(fileName);
+        setCurrentFileHandle(fileHandle);
+        editor?.commands.setContent(initialText);
+
+        await refreshDirectory();
+        showToast(`已在工作区 ${currentDirectoryName} 中创建并保存 ${fileName}`);
+      } catch (err: any) {
+        console.error('新建文件保存失败:', err);
+        showToast(`创建失败: ${err.message || '受限于文件夹读写权限'}`);
+      }
+    } else {
+      // Memory / fallback mode
+      const title = fileName.replace(/\.md$/, '');
+      const initialText = `# ${title}\n\n开始编写 ${title}...\n`;
+      setDocName(fileName);
+      setCurrentFileHandle(null);
+      editor?.commands.setContent(initialText);
+
+      const newRes: ResourceItem = {
+        id: Date.now().toString(),
+        name: fileName,
+        relativePath: fileName,
+        type: 'file',
+      };
+      setResources(prev => [newRes, ...prev]);
+      showToast(`已创建并切换至 ${fileName}`);
     }
   };
 
@@ -1082,7 +1320,7 @@ export default function App() {
       // Add to resources if not already there
       setResources(prev => {
         if (prev.find(r => r.name === handle.name)) return prev;
-        return [...prev, { name: handle.name, type: 'file', handle }];
+        return [...prev, { id: handle.name, name: handle.name, relativePath: handle.name, type: 'file', handle }];
       });
       setActiveSidebarTab('resources');
     } catch (err: any) {
@@ -1139,7 +1377,7 @@ export default function App() {
         // 同步添加至资源列表
         setResources(prev => {
           if (prev.find(r => r.name === handle.name)) return prev;
-          return [...prev, { name: handle.name, type: 'file', handle }];
+          return [...prev, { id: handle.name, name: handle.name, relativePath: handle.name, type: 'file', handle }];
         });
 
         showToast(`文件已成功另存为 ${handle.name}`);
@@ -1162,6 +1400,10 @@ export default function App() {
   // 保存：直接保存到打开的源文件中，若无源文件句柄则自动转为“另存为”
   const saveFile = async () => {
     if (!editor) return;
+
+    if (currentDirectoryHandle) {
+      await syncMediaToDirectory(currentDirectoryHandle);
+    }
 
     if (currentFileHandle && typeof currentFileHandle.createWritable === 'function') {
       try {
@@ -1738,6 +1980,47 @@ export default function App() {
     }
   };
 
+  // 通用媒体处理：保存至 .med 相对路径文件夹并引用相对路径
+  const processAndInsertMediaFile = useCallback(async (file: File) => {
+    if (!editor) return;
+    const isImage = file.type.startsWith('image/');
+    const isVideo = file.type.startsWith('video/');
+
+    if (isImage) {
+      const { relativePath, fileName } = await saveMediaToMedFolder(file, file.name, currentDirectoryHandle);
+      editor.chain().focus().setImage({ src: relativePath, alt: fileName }).run();
+      if (currentDirectoryHandle) {
+        refreshDirectory();
+      } else {
+        setResources(prev => [{
+          id: relativePath,
+          name: fileName,
+          relativePath,
+          type: 'image',
+          file,
+          url: getMediaBlobUrl(relativePath) || undefined,
+        }, ...prev]);
+      }
+      showToast(`图片已自动保存至 ${relativePath} 并插入文档`);
+    } else if (isVideo) {
+      const { relativePath, fileName } = await saveMediaToMedFolder(file, file.name, currentDirectoryHandle);
+      editor.chain().focus().setVideo({ src: relativePath }).run();
+      if (currentDirectoryHandle) {
+        refreshDirectory();
+      } else {
+        setResources(prev => [{
+          id: relativePath,
+          name: fileName,
+          relativePath,
+          type: 'video' as any,
+          file,
+          url: getMediaBlobUrl(relativePath) || undefined,
+        }, ...prev]);
+      }
+      showToast(`视频已自动保存至 ${relativePath} 并插入文档`);
+    }
+  }, [editor, currentDirectoryHandle, refreshDirectory, showToast]);
+
   // 图片上传与裁剪
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1746,20 +2029,55 @@ export default function App() {
       reader.onload = (re) => setCropImage(re.target?.result as string);
       reader.readAsDataURL(file);
     }
+    e.target.value = '';
   };
 
-  const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file && editor) {
-      const url = URL.createObjectURL(file);
-      editor.chain().focus().setVideo({ src: url }).run();
+      const { relativePath, fileName } = await saveMediaToMedFolder(file, file.name, currentDirectoryHandle);
+      editor.chain().focus().setVideo({ src: relativePath }).run();
+      if (currentDirectoryHandle) {
+        refreshDirectory();
+      } else {
+        setResources(prev => [{
+          id: relativePath,
+          name: fileName,
+          relativePath,
+          type: 'video' as any,
+          file,
+          url: getMediaBlobUrl(relativePath) || undefined,
+        }, ...prev]);
+      }
+      showToast(`视频已自动保存至 ${relativePath} 并成功插入文档`);
     }
+    e.target.value = '';
   };
 
-  const handleCrop = () => {
+  const handleCrop = async () => {
     if (cropperRef.current && editor) {
-      const base64 = cropperRef.current.getCroppedCanvas().toDataURL();
-      editor.chain().focus().setImage({ src: base64 }).run();
+      const canvas = cropperRef.current.getCroppedCanvas();
+      if (canvas) {
+        canvas.toBlob(async (blob) => {
+          if (blob) {
+            const { relativePath, fileName } = await saveMediaToMedFolder(blob, 'cropped_image.png', currentDirectoryHandle);
+            editor.chain().focus().setImage({ src: relativePath, alt: fileName }).run();
+            if (currentDirectoryHandle) {
+              refreshDirectory();
+            } else {
+              setResources(prev => [{
+                id: relativePath,
+                name: fileName,
+                relativePath,
+                type: 'image',
+                file: blob,
+                url: getMediaBlobUrl(relativePath) || undefined,
+              }, ...prev]);
+            }
+            showToast(`图片已自动保存至 ${relativePath} 并插入文档`);
+          }
+        }, 'image/png');
+      }
       setCropImage(null);
     }
   };
@@ -2011,24 +2329,24 @@ export default function App() {
   return (
     <div ref={containerRef} className="h-screen flex flex-col font-sans relative overflow-hidden select-none bg-[var(--bg-secondary)]">
       {/* --- 顶部工具栏 --- */}
-      <header className="h-14 border-b border-[var(--border)] bg-[var(--bg-primary)] px-4 flex items-center justify-between z-40 shrink-0">
-        <div className="flex items-center gap-6">
+      <header className="h-14 border-b border-[var(--border)] bg-[var(--bg-primary)] px-3 sm:px-4 flex items-center justify-between z-40 shrink-0 gap-2 sm:gap-4 overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-3 sm:gap-6 shrink-0">
           <button 
             onClick={() => setShowSidebar(!showSidebar)}
-            className="p-2 hover:bg-[var(--bg-secondary)] rounded-lg text-[var(--text-secondary)] transition-colors"
+            className="p-2 hover:bg-[var(--bg-secondary)] rounded-lg text-[var(--text-secondary)] transition-colors shrink-0"
             title={showSidebar ? "收起侧边栏" : "展开侧边栏"}
           >
             {showSidebar ? <PanelLeftClose size={20} /> : <PanelLeft size={20} />}
           </button>
 
-          <div className="flex items-center gap-2 text-[var(--accent)] font-bold text-lg cursor-pointer">
-            <div className="p-1 px-2 bg-[var(--accent)] rounded text-white flex items-center justify-center">
+          <div className="flex items-center gap-2 text-[var(--accent)] font-bold text-lg cursor-pointer shrink-0">
+            <div className="p-1 px-2 bg-[var(--accent)] rounded text-white flex items-center justify-center shrink-0">
               <FluxLogo size={20} />
             </div>
-            <span className="tracking-tight">FluxMark</span>
+            <span className="tracking-tight whitespace-nowrap">FluxMark</span>
           </div>
 
-          <nav className="flex items-center gap-1">
+          <nav className="flex items-center gap-1 shrink-0">
             <ToolbarGroup label="文件">
               <ToolbarItem icon={<FilePlus size={16} />} label="新建" onClick={createNewFile} />
               <ToolbarItem icon={<Upload size={16} />} label="打开" onClick={openAppFile} />
@@ -2199,8 +2517,8 @@ export default function App() {
           </nav>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex bg-[var(--bg-secondary)] p-1 rounded-lg border border-[var(--border)] gap-0.5">
+        <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+          <div className="flex bg-[var(--bg-secondary)] p-1 rounded-lg border border-[var(--border)] gap-0.5 shrink-0">
             {THEME_OPTIONS.map((t) => (
               <ThemeButton 
                 key={t.id} 
@@ -2212,29 +2530,29 @@ export default function App() {
             ))}
           </div>
 
-          <div className="h-6 w-px bg-[var(--border)]" />
+          <div className="h-6 w-px bg-[var(--border)] shrink-0" />
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               onClick={() => setShowSponsorModal(true)}
-              className="px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-600 transition-all flex items-center gap-1.5 text-xs font-bold shadow-xs active:scale-95 cursor-pointer"
+              className="h-9 px-2.5 sm:px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-600 transition-all flex items-center gap-1.5 text-xs font-bold shadow-xs active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
               title="赏赞与支持 FluxMark"
             >
-              <HeartIcon size={15} className="fill-rose-500 text-rose-500" />
-              <span className="hidden sm:inline">赏赞支持</span>
+              <HeartIcon size={15} className="fill-rose-500 text-rose-500 shrink-0" />
+              <span className="whitespace-nowrap">赏赞支持</span>
             </button>
-            <div className="h-6 w-px bg-[var(--border)] mx-0.5" />
+            <div className="h-6 w-px bg-[var(--border)] mx-0.5 shrink-0" />
             <button 
               onClick={() => setShowAIChat(!showAIChat)}
-              className={`p-2 rounded-lg transition-all flex items-center gap-2 ${showAIChat ? 'bg-[var(--accent)] text-white shadow-md' : 'hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-transparent hover:border-[var(--border)]'}`}
+              className={`h-9 px-2.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${showAIChat ? 'bg-[var(--accent)] text-white shadow-md' : 'hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-transparent hover:border-[var(--border)]'}`}
               title="AI 助手"
             >
-              <SparklesIcon size={20} />
-              {showAIChat && <span className="text-xs font-bold">AI 已开启</span>}
+              <SparklesIcon size={18} className="shrink-0" />
+              {showAIChat && <span className="text-xs font-bold whitespace-nowrap">AI 已开启</span>}
             </button>
-            <div className="h-6 w-px bg-[var(--border)] mx-1" />
-            <button onClick={togglePresentation} title="放映模式" className="p-2 hover:bg-[var(--bg-secondary)] rounded-lg transition-colors cursor-pointer text-[var(--text-secondary)]">
-              <Monitor size={20} />
+            <div className="h-6 w-px bg-[var(--border)] mx-0.5 shrink-0" />
+            <button onClick={togglePresentation} title="放映模式" className="h-9 p-2 hover:bg-[var(--bg-secondary)] rounded-lg transition-colors cursor-pointer text-[var(--text-secondary)] shrink-0 flex items-center justify-center">
+              <Monitor size={18} className="shrink-0" />
             </button>
             <button 
               onClick={() => {
@@ -2245,10 +2563,10 @@ export default function App() {
                 input.click();
               }}
               title="插入本地图片"
-              className="px-4 py-2 bg-[var(--accent)] text-white rounded-lg flex items-center gap-2 hover:opacity-90 transition-opacity font-medium cursor-pointer"
+              className="h-9 px-3 sm:px-3.5 bg-[var(--accent)] text-white rounded-lg flex items-center gap-1.5 hover:opacity-90 transition-opacity text-xs font-bold cursor-pointer whitespace-nowrap shrink-0 shadow-xs"
             >
-              <ImageIcon size={18} />
-              <span>插入图片</span>
+              <ImageIcon size={16} className="shrink-0" />
+              <span className="whitespace-nowrap">插入图片</span>
             </button>
             <button 
               onClick={() => {
@@ -2259,10 +2577,10 @@ export default function App() {
                 input.click();
               }}
               title="插入本地视频"
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 hover:opacity-90 transition-opacity font-medium cursor-pointer shadow-sm"
+              className="h-9 px-3 sm:px-3.5 bg-blue-600 text-white rounded-lg flex items-center gap-1.5 hover:opacity-90 transition-opacity text-xs font-bold cursor-pointer shadow-xs whitespace-nowrap shrink-0"
             >
-              <VideoIcon size={18} />
-              <span>插入视频</span>
+              <VideoIcon size={16} className="shrink-0" />
+              <span className="whitespace-nowrap">插入视频</span>
             </button>
           </div>
         </div>
@@ -2278,8 +2596,9 @@ export default function App() {
               animate={{ width: 280, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              className="border-r border-[var(--border)] bg-[var(--bg-secondary)] overflow-hidden flex flex-col z-30"
+              className="border-r border-[var(--border)] bg-[var(--bg-secondary)] overflow-hidden flex flex-col z-30 shrink-0"
             >
+              <div className="w-[280px] shrink-0 flex flex-col h-full overflow-hidden">
               <div className="flex border-b border-[var(--border)]">
                 <button 
                   onClick={() => setActiveSidebarTab('outline')}
@@ -2318,11 +2637,20 @@ export default function App() {
                         </div>
                         <div className="flex items-center gap-1">
                           <button
+                            onClick={insertTableOfContents}
+                            className="px-2 py-0.5 text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-400 dark:hover:bg-blue-900/80 rounded transition-colors flex items-center gap-1 cursor-pointer"
+                            title="在文档顶部生成并插入基于 H1-H3 的目录"
+                          >
+                            <ListTree size={12} />
+                            <span>插入目录</span>
+                          </button>
+                          <span className="text-slate-300 text-[10px]">|</span>
+                          <button
                             onClick={expandAllHeadings}
                             className="px-2 py-0.5 text-[10px] font-medium text-slate-500 hover:text-[var(--accent)] hover:bg-slate-100 rounded transition-colors cursor-pointer"
                             title="展开全部"
                           >
-                            展开全部
+                            展开
                           </button>
                           <span className="text-slate-300 text-[10px]">|</span>
                           <button
@@ -2330,7 +2658,7 @@ export default function App() {
                             className="px-2 py-0.5 text-[10px] font-medium text-slate-500 hover:text-[var(--accent)] hover:bg-slate-100 rounded transition-colors cursor-pointer"
                             title="折叠全部"
                           >
-                            折叠全部
+                            折叠
                           </button>
                         </div>
                       </div>
@@ -2459,100 +2787,311 @@ export default function App() {
                     />
                   </div>
                 ) : (
-                  <div className="p-2 space-y-4">
-                    <div className="p-2 bg-[var(--bg-primary)] rounded-xl border border-[var(--border)] shadow-sm">
-                      <div className="flex items-center justify-between mb-3 px-1">
-                        <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
-                          <Folder size={14} />
-                          <span>资源管理器</span>
+                  <div className="p-3 space-y-3">
+                    {/* Workspace Folder Header Card */}
+                    <div className="p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border)] shadow-xs space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="p-1.5 bg-amber-500/10 text-amber-500 rounded-lg shrink-0">
+                            <Folder size={16} />
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="text-xs font-bold truncate text-[var(--text-primary)]">
+                              {currentDirectoryName || '工作区资源管理器'}
+                            </h4>
+                            <p className="text-[10px] text-[var(--text-secondary)]">
+                              {resources.length > 0
+                                ? `${resources.length} 项资源 • ${resources.filter(r => r.type === 'file').length} 篇文档 • ${resources.filter(r => r.type === 'image').length} 张图片`
+                                : '未打开文件夹或零文件'}
+                            </p>
+                          </div>
                         </div>
-                        <div className="flex gap-1">
-                          <button 
-                            onClick={createNewFile}
-                            title="新建空白文档"
-                            className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-[var(--accent)] transition-colors"
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => setShowNewFileModal(true)}
+                            title="在当前文件夹新建并保存文档"
+                            className="p-1.5 hover:bg-[var(--bg-secondary)] rounded-lg text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors cursor-pointer"
                           >
-                            <FilePlus size={14} />
+                            <FilePlus size={15} />
                           </button>
-                          <button 
+                          {currentDirectoryHandle && (
+                            <button
+                              onClick={refreshDirectory}
+                              title="重新扫描刷新工作区"
+                              className="p-1.5 hover:bg-[var(--bg-secondary)] rounded-lg text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors cursor-pointer"
+                            >
+                              <RefreshCcw size={15} />
+                            </button>
+                          )}
+                          <button
                             onClick={openDirectory}
-                            title="打开文件夹"
-                            className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-[var(--accent)] transition-colors"
+                            title="打开本地文件夹"
+                            className="p-1.5 hover:bg-[var(--bg-secondary)] rounded-lg text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors cursor-pointer"
                           >
-                            <Folder size={14} />
-                          </button>
-                          <button 
-                            onClick={openAppFile}
-                            title="打开外部文件"
-                            className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-[var(--accent)] transition-colors"
-                          >
-                            <Upload size={14} />
+                            <FolderOpen size={15} />
                           </button>
                         </div>
                       </div>
-                      <div className="space-y-1">
-                        {/* Default current file */}
-                        <button className="w-full flex items-center gap-3 p-2 rounded-lg bg-blue-50 text-[var(--accent)] text-sm font-medium">
-                          <FileText size={16} />
-                          <span className="truncate">{docName}</span>
+
+                      {/* Quick Action bar: New file button inside workspace */}
+                      <div className="pt-1 flex gap-2">
+                        <button
+                          onClick={() => setShowNewFileModal(true)}
+                          className="flex-1 py-1.5 px-2.5 bg-[var(--accent)] text-white text-xs font-bold rounded-lg shadow-2xs hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <FilePlus size={13} />
+                          <span>新建保存文档</span>
                         </button>
-                        
-                        {/* Dynamically added resources */}
-                        {resources.map((res, i) => (
-                           <button 
-                             key={i}
-                             onClick={async () => {
-                               if (res.type === 'file' && res.handle) {
-                                 try {
-                                   let content = '';
-                                   if (res.handle instanceof File) {
-                                     content = await res.handle.text();
-                                     setCurrentFileHandle(null);
-                                     setDocName(res.name);
-                                   } else if (res.handle.getFile) {
-                                     const file = await res.handle.getFile();
-                                     content = await file.text();
-                                     setCurrentFileHandle(res.handle);
-                                     setDocName(res.name);
-                                   }
-                                   editor?.commands.setContent(content);
-                                   showToast(`已切换至 ${res.name}`);
-                                 } catch (err) {
-                                   console.error('Failed to read file:', err);
-                                   showToast('无法读取文件，请确保拥有访问权限');
-                                 }
-                               }
-                             }}
-                             className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 text-slate-600 text-sm"
-                           >
-                             {res.type === 'folder' ? <Folder size={16} className="text-amber-500" /> : <FileText size={16} className="text-slate-400" />}
-                             <span className="truncate">{res.name}</span>
-                            </button>
-                        ))}
+                        <button
+                          onClick={openDirectory}
+                          className="py-1.5 px-2.5 bg-[var(--bg-secondary)] hover:bg-[var(--border)] text-[var(--text-primary)] text-xs font-medium rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer border border-[var(--border)]"
+                        >
+                          <Folder size={13} className="text-amber-500" />
+                          <span>更换文件夹</span>
+                        </button>
                       </div>
                     </div>
 
-                    <div className="px-3">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">管理操作</p>
-                      <div className="grid grid-cols-1 gap-2">
-                         <button 
-                           onClick={openDirectory}
-                           className="flex items-center gap-2 p-2 rounded-lg border border-dashed border-slate-200 text-xs text-slate-500 hover:bg-slate-50 transition-colors"
-                         >
-                           <Folder size={14} />
-                           打开本地工作空间
-                         </button>
-                         <button 
-                           onClick={openAppFile}
-                           className="flex items-center gap-2 p-2 rounded-lg border border-dashed border-slate-200 text-xs text-slate-500 hover:bg-slate-50 transition-colors"
-                         >
-                           <FileCode size={14} />
-                           导入现有 Markdown
-                         </button>
+                    {/* Search & Filter Bar */}
+                    {resources.length > 0 && (
+                      <div className="space-y-2">
+                        {/* Search Input */}
+                        <div className="relative">
+                          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
+                          <input
+                            type="text"
+                            value={resourceSearch}
+                            onChange={(e) => setResourceSearch(e.target.value)}
+                            placeholder="搜索工作区中的文件..."
+                            className="w-full pl-8 pr-7 py-1.5 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-all placeholder-[var(--text-secondary)]"
+                          />
+                          {resourceSearch && (
+                            <button
+                              onClick={() => setResourceSearch('')}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Filter Pills */}
+                        <div className="flex items-center gap-1 p-0.5 bg-[var(--bg-secondary)] rounded-lg text-[11px] font-medium border border-[var(--border)]">
+                          <button
+                            onClick={() => setResourceFilter('all')}
+                            className={`flex-1 py-1 rounded-md transition-all text-center cursor-pointer ${
+                              resourceFilter === 'all'
+                                ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] font-bold shadow-2xs'
+                                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                            }`}
+                          >
+                            全部 ({resources.length})
+                          </button>
+                          <button
+                            onClick={() => setResourceFilter('file')}
+                            className={`flex-1 py-1 rounded-md transition-all text-center cursor-pointer ${
+                              resourceFilter === 'file'
+                                ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] font-bold shadow-2xs'
+                                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                            }`}
+                          >
+                            📄 文档 ({resources.filter(r => r.type === 'file').length})
+                          </button>
+                          <button
+                            onClick={() => setResourceFilter('image')}
+                            className={`flex-1 py-1 rounded-md transition-all text-center cursor-pointer ${
+                              resourceFilter === 'image'
+                                ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] font-bold shadow-2xs'
+                                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                            }`}
+                          >
+                            🖼️ 图片 ({resources.filter(r => r.type === 'image').length})
+                          </button>
+                        </div>
                       </div>
+                    )}
+
+                    {/* Resources List */}
+                    <div className="space-y-1 max-h-[58vh] overflow-y-auto pr-1 custom-scrollbar">
+                      {/* Active open file card */}
+                      <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-between text-xs font-semibold text-[var(--accent)] mb-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FileText size={15} className="shrink-0 text-blue-500" />
+                          <span className="truncate">{docName}</span>
+                        </div>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500 text-white font-mono shrink-0">
+                          当前编辑
+                        </span>
+                      </div>
+
+                      {/* Filtered local resources */}
+                      {(() => {
+                        const filtered = resources.filter(res => {
+                          if (resourceSearch.trim()) {
+                            const query = resourceSearch.toLowerCase();
+                            const matchesName = res.name.toLowerCase().includes(query) || res.relativePath.toLowerCase().includes(query);
+                            if (!matchesName) return false;
+                          }
+                          if (resourceFilter === 'file') return res.type === 'file';
+                          if (resourceFilter === 'image') return res.type === 'image';
+                          return true;
+                        });
+
+                        if (filtered.length === 0) {
+                          return (
+                            <div className="p-6 text-center text-xs text-[var(--text-secondary)] bg-[var(--bg-secondary)]/50 rounded-xl border border-dashed border-[var(--border)] space-y-2">
+                              <p>尚未加载或未匹配到相关文件</p>
+                              <div className="flex justify-center gap-2">
+                                <button
+                                  onClick={() => setShowNewFileModal(true)}
+                                  className="px-2.5 py-1 text-[11px] bg-[var(--accent)] text-white rounded-lg hover:opacity-90 transition-all font-medium cursor-pointer"
+                                >
+                                  + 新建 Markdown
+                                </button>
+                                <button
+                                  onClick={openDirectory}
+                                  className="px-2.5 py-1 text-[11px] bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-secondary)] transition-all font-medium cursor-pointer"
+                                >
+                                  📂 打开本地文件夹
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        return filtered.map((res, i) => {
+                          const isCurrentActive = res.name === docName;
+
+                          if (res.type === 'image') {
+                            return (
+                              <div
+                                key={i}
+                                className="group relative p-2 rounded-xl border border-[var(--border)] hover:border-[var(--accent)]/50 hover:bg-[var(--bg-secondary)] transition-all flex items-center justify-between gap-2"
+                              >
+                                <div
+                                  onClick={() => {
+                                    setPreviewImageInfo({
+                                      url: res.url || (res.file ? URL.createObjectURL(res.file) : ''),
+                                      name: res.name,
+                                      size: res.size,
+                                      handle: res.handle,
+                                      file: res.file,
+                                    });
+                                  }}
+                                  className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer"
+                                >
+                                  {res.url ? (
+                                    <div className="w-8 h-8 rounded-lg overflow-hidden bg-black/20 shrink-0 border border-slate-700/20">
+                                      <img src={res.url} alt={res.name} className="w-full h-full object-cover" />
+                                    </div>
+                                  ) : (
+                                    <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-500 flex items-center justify-center shrink-0">
+                                      <ImageIcon size={16} />
+                                    </div>
+                                  )}
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-xs font-semibold truncate text-[var(--text-primary)] group-hover:text-[var(--accent)]">
+                                      {res.name}
+                                    </p>
+                                    <p className="text-[10px] text-[var(--text-secondary)]">
+                                      图片文件 {res.size ? `• ${(res.size / 1024).toFixed(1)} KB` : ''}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    onClick={() => {
+                                      setPreviewImageInfo({
+                                        url: res.url || (res.file ? URL.createObjectURL(res.file) : ''),
+                                        name: res.name,
+                                       relativePath: res.relativePath,
+                                        size: res.size,
+                                        handle: res.handle,
+                                        file: res.file,
+                                      });
+                                    }}
+                                    title="预览大图"
+                                    className="p-1 hover:bg-slate-500/10 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+                                  >
+                                    <Eye size={14} />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const imgUrl = res.url || (res.file ? URL.createObjectURL(res.file) : '');
+                                      if (imgUrl) {
+                                        editor?.chain().focus().setImage({ src: imgUrl, alt: res.name }).run();
+                                        showToast(`已插入图片 ${res.name} 到光标处`);
+                                      }
+                                    }}
+                                    title="插入到文档"
+                                    className="p-1 bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)] hover:text-white rounded-md transition-colors cursor-pointer"
+                                  >
+                                    <Plus size={14} />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <button
+                              key={i}
+                              onClick={async () => {
+                                if (res.type === 'file' && res.handle) {
+                                  try {
+                                    let content = '';
+                                    if (res.handle instanceof File) {
+                                      content = await res.handle.text();
+                                      setCurrentFileHandle(null);
+                                      setDocName(res.name);
+                                    } else if (res.handle.getFile) {
+                                      const file = await res.handle.getFile();
+                                      content = await file.text();
+                                      setCurrentFileHandle(res.handle);
+                                      setDocName(res.name);
+                                    }
+                                    editor?.commands.setContent(content);
+                                    showToast(`已加载文档 ${res.name}`);
+                                  } catch (err) {
+                                    console.error('Failed to read file:', err);
+                                    showToast('无法读取该文件，请确保拥有授权');
+                                  }
+                                }
+                              }}
+                              className={`w-full p-2 rounded-xl text-left border transition-all flex items-center justify-between gap-2 cursor-pointer ${
+                                isCurrentActive
+                                  ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800 text-[var(--accent)]'
+                                  : 'border-transparent hover:border-[var(--border)] hover:bg-[var(--bg-secondary)] text-[var(--text-primary)]'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                {res.type === 'folder' ? (
+                                  <Folder size={16} className="text-amber-500 shrink-0" />
+                                ) : (
+                                  <FileText size={16} className="text-blue-500 shrink-0" />
+                                )}
+                                <div className="min-w-0">
+                                  <p className="text-xs font-medium truncate">{res.name}</p>
+                                  {res.relativePath && res.relativePath !== res.name && (
+                                    <p className="text-[10px] text-[var(--text-secondary)] truncate">
+                                      {res.relativePath}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                              {isCurrentActive && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                              )}
+                            </button>
+                          );
+                        });
+                      })()}
                     </div>
                   </div>
                 )}
+              </div>
               </div>
             </motion.aside>
           )}
@@ -2717,20 +3256,27 @@ export default function App() {
             <div 
               className="transition-all duration-300 relative mx-auto w-full max-w-4xl min-h-screen my-10 px-12 py-16 bg-[var(--bg-primary)] shadow-[0_20px_50px_rgba(0,0,0,0.05)] rounded-2xl border border-[var(--border)] group"
               style={{ zoom: zoom }}
+              onClick={(e) => {
+                const target = e.target as HTMLElement;
+                const tocLink = target.closest('[data-toc-pos], [data-toc-text]') as HTMLElement | null;
+                if (tocLink) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const posStr = tocLink.getAttribute('data-toc-pos');
+                  const rawText = tocLink.getAttribute('data-toc-text');
+                  const text = rawText ? decodeURIComponent(rawText) : '';
+                  const pos = posStr ? parseInt(posStr, 10) : null;
+                  jumpToHeadingByTextOrPos(pos, text);
+                }
+              }}
             >
               <div className="absolute top-6 right-8 flex items-center gap-4 opacity-0 group-hover:opacity-100 transition-opacity">
                 {(() => {
                   const count = editor?.storage.characterCount?.characters() || 0;
-                  const isExceeded = count > 5000;
                   return (
-                    <span className={`text-[10px] font-mono tracking-wider px-2.5 py-1 rounded-lg border transition-all flex items-center gap-1.5 ${
-                      isExceeded 
-                        ? 'bg-red-50 text-red-600 border-red-300 dark:bg-red-950/60 dark:text-red-400 dark:border-red-800 font-bold' 
-                        : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border)]'
-                    }`}>
-                      {isExceeded && <AlertCircle size={12} className="text-red-500 animate-pulse" />}
+                    <span className="text-[10px] font-mono tracking-wider px-2.5 py-1 rounded-lg border bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border)] transition-all flex items-center gap-1.5">
+                      <Type size={12} className="text-[var(--text-secondary)]" />
                       <span>{count.toLocaleString()} 字符</span>
-                      {isExceeded && <span className="text-[9px] font-sans text-red-500 font-bold">(已超5000字上限)</span>}
                     </span>
                   );
                 })()}
@@ -2740,7 +3286,7 @@ export default function App() {
                 <EditorContent editor={editor} />
               </div>
 
-              <div className="fixed bottom-16 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-[var(--bg-primary)] p-2 rounded-2xl shadow-2xl border border-[var(--border)] z-30 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="fixed bottom-16 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-[var(--bg-primary)] p-2 rounded-2xl shadow-2xl border border-[var(--border)] z-30 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 max-w-[95vw] overflow-x-auto no-scrollbar">
                 <QuickTool icon={<Undo size={14}/>} onClick={() => applyStyle('undo')} title="撤销 (Ctrl+Z)" disabled={!editor?.can().undo()} />
                 <QuickTool icon={<Redo size={14}/>} onClick={() => applyStyle('redo')} title="重做 (Ctrl+Y)" disabled={!editor?.can().redo()} />
                 <QuickTool icon={<Wand2 size={14} className="text-indigo-500 hover:rotate-12 transition-transform"/>} onClick={handleSmartFormat} title="一键智能排版 (自动优化中英文空格、消除多余空行与规范标点)" />
@@ -2793,7 +3339,22 @@ export default function App() {
 
                 <QuickTool icon={<List size={14}/>} onClick={() => applyStyle('bullet')} title="无序列表" isActive={editor?.isActive('bulletList')} />
                 <QuickTool icon={<ListTodo size={14}/>} onClick={() => applyStyle('task')} title="任务清单" isActive={editor?.isActive('taskList')} />
+                <QuickTool icon={<ListTree size={14} className="text-blue-500"/>} onClick={insertTableOfContents} title="在文档顶部生成/更新目录 (基于 H1-H3 标题)" />
                 <QuickTool icon={<Quote size={14}/>} onClick={() => applyStyle('quote')} title="引用" isActive={editor?.isActive('blockquote')} />
+                <QuickTool icon={<TableIcon size={14}/>} onClick={() => applyStyle('table')} title="插入 / 删除表格" isActive={editor?.isActive('table')} />
+
+                {editor?.isActive('table') && (
+                  <div className="flex items-center gap-1 bg-[var(--bg-secondary)] px-1.5 py-0.5 rounded-xl border border-[var(--border)]">
+                    <button onClick={() => applyStyle('addRowAfter')} className="px-1.5 py-0.5 text-[10px] hover:bg-indigo-500 hover:text-white rounded text-[var(--text-secondary)] font-medium transition-colors" title="下方插入行">+行</button>
+                    <button onClick={() => applyStyle('deleteRow')} className="px-1.5 py-0.5 text-[10px] hover:bg-red-500 hover:text-white rounded text-red-500 font-medium transition-colors" title="删除当前行">-行</button>
+                    <span className="w-px h-3 bg-[var(--border)]" />
+                    <button onClick={() => applyStyle('addColumnAfter')} className="px-1.5 py-0.5 text-[10px] hover:bg-indigo-500 hover:text-white rounded text-[var(--text-secondary)] font-medium transition-colors" title="右侧插入列">+列</button>
+                    <button onClick={() => applyStyle('deleteColumn')} className="px-1.5 py-0.5 text-[10px] hover:bg-red-500 hover:text-white rounded text-red-500 font-medium transition-colors" title="删除当前列">-列</button>
+                    <span className="w-px h-3 bg-[var(--border)]" />
+                    <button onClick={() => applyStyle('toggleHeaderRow')} className="px-1.5 py-0.5 text-[10px] hover:bg-amber-500 hover:text-white rounded text-amber-600 dark:text-amber-400 font-medium transition-colors" title="切换表头">表头</button>
+                  </div>
+                )}
+
                 <div className="w-px h-4 bg-[var(--border)] mx-1" />
                 <QuickTool icon={<AlignCenter size={14}/>} onClick={() => applyStyle('align', 'center')} title="居中对齐" />
                 <QuickTool icon={<AlignLeft size={14}/>} onClick={() => applyStyle('align', 'left')} title="左对齐" />
@@ -3019,55 +3580,30 @@ export default function App() {
             </div>
           </div>
 
-          {/* Right Real-time Character & Word Counter Component with 5000 Threshold Warning */}
+          {/* Right Real-time Character & Word Counter Component */}
           <div className="flex items-center gap-3">
             {(() => {
               const characters = editor?.storage.characterCount?.characters() || 0;
               const words = editor?.storage.characterCount?.words() || 0;
-              const THRESHOLD = 5000;
-              const isExceeded = characters > THRESHOLD;
-              const percentage = Math.min(100, Math.round((characters / THRESHOLD) * 100));
 
               return (
                 <div 
-                  className={`flex items-center gap-2.5 px-3 py-1 rounded-xl border text-xs transition-all font-mono ${
-                    isExceeded 
-                      ? 'bg-red-50 text-red-600 border-red-300 dark:bg-red-950/50 dark:text-red-400 dark:border-red-800 font-bold shadow-sm' 
-                      : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border)]'
-                  }`}
-                  title={isExceeded ? `字符数（${characters.toLocaleString()}）已超过 5,000 字建议上限！` : `当前写作用量：${percentage}%`}
+                  className="flex items-center gap-2 px-3 py-1 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] text-xs font-mono transition-all"
+                  title={`当前统计：${characters.toLocaleString()} 字符，${words.toLocaleString()} 词`}
                 >
-                  {isExceeded ? (
-                    <AlertCircle size={14} className="text-red-500 shrink-0 animate-pulse" />
-                  ) : (
-                    <Type size={14} className="text-slate-400 shrink-0" />
-                  )}
+                  <Type size={14} className="text-[var(--text-secondary)] shrink-0" />
 
                   <div className="flex items-center gap-1.5">
-                    <span className={isExceeded ? 'text-red-600 dark:text-red-400 font-extrabold' : 'text-[var(--text-primary)] font-bold'}>
+                    <span className="text-[var(--text-primary)] font-bold">
                       {characters.toLocaleString()}
                     </span>
-                    <span className="text-[10px] opacity-60 font-sans">/ 5,000 字符</span>
+                    <span className="text-[10px] opacity-60 font-sans">字符</span>
                     <span className="opacity-30">|</span>
-                    <span className="text-[11px]">
-                      {words.toLocaleString()} <span className="text-[10px] opacity-60 font-sans">词</span>
+                    <span className="text-[var(--text-primary)] font-bold">
+                      {words.toLocaleString()}
                     </span>
+                    <span className="text-[10px] opacity-60 font-sans">词</span>
                   </div>
-
-                  {/* Progress Indicator */}
-                  <div className="w-12 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden shrink-0 ml-1 hidden sm:block">
-                    <div 
-                      className={`h-full transition-all duration-300 ${isExceeded ? 'bg-red-500 animate-pulse' : percentage > 80 ? 'bg-amber-500' : 'bg-blue-500'}`}
-                      style={{ width: `${percentage}%` }}
-                    />
-                  </div>
-
-                  {/* Red Alert Pill */}
-                  {isExceeded && (
-                    <span className="text-[10px] font-sans bg-red-100 dark:bg-red-900/70 text-red-600 dark:text-red-300 px-1.5 py-0.5 rounded-md font-bold ml-0.5">
-                      字数超出上限
-                    </span>
-                  )}
                 </div>
               );
             })()}
@@ -3132,8 +3668,9 @@ export default function App() {
                        editor.chain().focus().setInlineMath({ latex: text || 'x' }).run();
                      }
                    }} icon={<SuperscriptIcon size={16}/>} label="数学公式" />
-                   <FloatingBtn onClick={() => applyStyle('superscript')} icon={<SuperscriptIcon size={16}/>} label="上标" />
-               <FloatingBtn onClick={() => applyStyle('subscript')} icon={<SubscriptIcon size={16}/>} label="下标" />
+                    <FloatingBtn onClick={() => applyStyle('superscript')} icon={<SuperscriptIcon size={16}/>} label="上标" />
+                    <FloatingBtn onClick={() => applyStyle('subscript')} icon={<SubscriptIcon size={16}/>} label="下标" />
+                    <FloatingBtn onClick={() => applyStyle('table')} icon={<TableIcon size={16}/>} label="表格" />
                <div className="relative group/size flex items-center">
                   <FloatingBtn onClick={() => {}} icon={<Type size={16}/>} label="字号" />
                   <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl hidden group-hover/size:flex flex-col p-1 z-50">
@@ -3176,9 +3713,30 @@ export default function App() {
       <ImageCropperModal
         imageSrc={cropImage}
         onClose={() => setCropImage(null)}
-        onConfirm={(processedBase64) => {
+        onConfirm={async (processedBase64) => {
           if (editor) {
-            editor.chain().focus().setImage({ src: processedBase64 }).run();
+            try {
+              const res = await fetch(processedBase64);
+              const blob = await res.blob();
+              const { relativePath, fileName } = await saveMediaToMedFolder(blob, 'image.png', currentDirectoryHandle);
+              editor.chain().focus().setImage({ src: relativePath, alt: fileName }).run();
+              if (currentDirectoryHandle) {
+                refreshDirectory();
+              } else {
+                setResources(prev => [{
+                  id: relativePath,
+                  name: fileName,
+                  relativePath,
+                  type: 'image',
+                  file: blob,
+                  url: getMediaBlobUrl(relativePath) || undefined,
+                }, ...prev]);
+              }
+              showToast(`图片已自动保存至 ${relativePath} 并插入文档`);
+            } catch (err) {
+              console.error('Error saving cropped image:', err);
+              editor.chain().focus().setImage({ src: processedBase64 }).run();
+            }
           }
           setCropImage(null);
         }}
@@ -3472,6 +4030,25 @@ export default function App() {
       {/* Support / Sponsorship Modal */}
       <SponsorModal isOpen={showSponsorModal} onClose={() => setShowSponsorModal(false)} showToast={showToast} />
 
+      {/* Image Preview & Quick Insert Modal */}
+      <ImagePreviewModal
+        isOpen={!!previewImageInfo}
+        imageInfo={previewImageInfo}
+        onClose={() => setPreviewImageInfo(null)}
+        onInsertToEditor={(url, name) => {
+          editor?.chain().focus().setImage({ src: url, alt: name }).run();
+          showToast(`已成功插入图片 ${name} 到当前光标位置`);
+        }}
+      />
+
+      {/* New File Modal */}
+      <NewFileModal
+        isOpen={showNewFileModal}
+        directoryName={currentDirectoryName}
+        onClose={() => setShowNewFileModal(false)}
+        onConfirm={handleCreateNewFileInWorkspace}
+      />
+
       {/* Presentation Background & Pattern Modal */}
       <PresBgModal
         isOpen={showPresBgModal}
@@ -3683,7 +4260,7 @@ function ToolbarGroup({ label, children, alignRight = false }: { label: string, 
   }, []);
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative shrink-0">
       <button 
         onClick={() => setIsOpen(!isOpen)}
         className="px-3 py-1.5 hover:bg-[var(--bg-secondary)] rounded-lg text-sm text-[var(--text-secondary)] font-medium transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"

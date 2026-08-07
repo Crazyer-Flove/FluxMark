@@ -240,9 +240,37 @@ ul[data-type="taskList"] li[data-type="taskItem"][data-checked="true"] > div,
   margin-top: 0.4rem !important;
   margin-bottom: 0.4rem !important;
 }
-.prose-custom table, .ProseMirror table { @apply w-full border-collapse mb-4; }
-.prose-custom th, .ProseMirror th, .prose-custom td, .ProseMirror td { @apply border border-[var(--border)] p-2 text-left; }
-.prose-custom th, .ProseMirror th { @apply bg-[var(--bg-secondary)] font-bold; }
+.prose-custom table, .ProseMirror table { 
+  @apply w-full border-collapse my-6 text-sm text-[var(--text-primary)]; 
+  display: table;
+  table-layout: auto;
+}
+.prose-custom th, .ProseMirror th, .prose-custom td, .ProseMirror td { 
+  @apply border border-[var(--border)] px-3 py-2 text-left relative min-w-[80px]; 
+}
+.prose-custom th, .ProseMirror th { 
+  @apply bg-[var(--bg-secondary)] font-bold text-[var(--text-primary)]; 
+}
+.prose-custom tr:nth-child(even), .ProseMirror tr:nth-child(even) {
+  background-color: rgba(0, 0, 0, 0.015);
+}
+.ProseMirror .selectedCell:after {
+  z-index: 2;
+  position: absolute;
+  content: "";
+  left: 0; right: 0; top: 0; bottom: 0;
+  background: rgba(17, 97, 243, 0.15);
+  pointer-events: none;
+}
+.ProseMirror .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background-color: var(--accent);
+  pointer-events: none;
+}
 .prose-custom img, .ProseMirror img { 
   @apply max-w-full h-auto rounded-lg mx-auto transition-all cursor-pointer border border-transparent hover:border-[var(--accent)]; 
   content-visibility: auto;

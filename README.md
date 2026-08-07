@@ -207,6 +207,7 @@ npm run build
 
 如果您觉得 FluxMark 为您的学习、创作或教学演示带来了便利，欢迎给予打赏支持或提交 GitHub Star 🌟！
 
+在应用的“赞赏”模组中，支持**直接替换为您自己的微信或支付宝收款码**（只需点击“上传/更换收款码”，或在源码中替换 `/public/wechat-qr.jpg` 和 `/public/alipay-qr.jpg`）。
 
 ---
 
