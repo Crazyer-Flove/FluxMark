@@ -132,7 +132,29 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
   });
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
 
-  const [messages, setMessages] = useState<Message[]>([]);
+  // Load saved chat messages from storage
+  const [messages, setMessages] = useState<Message[]>(() => {
+    try {
+      const savedSession = sessionStorage.getItem('flux_ai_chat_messages');
+      if (savedSession) {
+        const parsed = JSON.parse(savedSession);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+
+      const mode = localStorage.getItem('flux_ai_storage_mode') || 'session';
+      if (mode === 'local') {
+        const savedLocal = localStorage.getItem('flux_ai_chat_messages');
+        if (savedLocal) {
+          const parsed = JSON.parse(savedLocal);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse saved chat messages:', e);
+    }
+    return [];
+  });
+
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
@@ -147,6 +169,21 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isLoading, errorMessage]);
+
+  // Persist messages whenever messages or storageMode changes
+  useEffect(() => {
+    try {
+      const serialized = JSON.stringify(messages);
+      sessionStorage.setItem('flux_ai_chat_messages', serialized);
+      if (storageMode === 'local') {
+        localStorage.setItem('flux_ai_chat_messages', serialized);
+      } else {
+        localStorage.removeItem('flux_ai_chat_messages');
+      }
+    } catch (e) {
+      console.warn('Failed to save chat messages:', e);
+    }
+  }, [messages, storageMode]);
 
   // Save config based on selected device storage mode
   const handleSaveSettings = () => {
@@ -200,16 +237,19 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
       sessionStorage.removeItem('flux_ai_apiKey');
       sessionStorage.removeItem('flux_ai_model');
       sessionStorage.removeItem('flux_ai_system');
+      sessionStorage.removeItem('flux_ai_chat_messages');
 
       localStorage.removeItem('flux_ai_baseUrl');
       localStorage.removeItem('flux_ai_apiKey');
       localStorage.removeItem('flux_ai_model');
       localStorage.removeItem('flux_ai_system');
       localStorage.removeItem('flux_ai_storage_mode');
+      localStorage.removeItem('flux_ai_chat_messages');
     } catch (e) {
       console.warn('Clear storage error:', e);
     }
 
+    setMessages([]);
     setApiKey('');
     setBaseUrl('https://api.deepseek.com/v1');
     setModelName('deepseek-chat');
@@ -228,19 +268,21 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
 
   const constructApiUrl = (endpoint: string) => {
     let url = endpoint.trim().replace(/\/+$/, '');
-    if (!url.endsWith('/chat/completions')) {
-      if (!url.endsWith('/v1')) {
-        url = `${url}/v1`;
-      }
-      url = `${url}/chat/completions`;
+    if (url.endsWith('/chat/completions')) {
+      return url;
     }
-    return url;
+    // If url ends with a version string like /v1, /v2, /v4, /v1beta, etc.
+    if (/\/(v\d+[\w.-]*)$/i.test(url)) {
+      return `${url}/chat/completions`;
+    }
+    return `${url}/v1/chat/completions`;
   };
 
   // Test connection to API
   const handleTestConnection = async () => {
     const trimmedBaseUrl = baseUrl.trim();
     const trimmedApiKey = apiKey.trim();
+    const trimmedModel = modelName.trim() || 'deepseek-chat';
 
     if (!trimmedBaseUrl) {
       setErrorMessage('请填写 API 服务地址（Base URL）');
@@ -260,9 +302,9 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          model: modelName.trim() || 'deepseek-chat',
-          messages: [{ role: 'user', content: 'Hi' }],
-          max_tokens: 5,
+          model: trimmedModel,
+          messages: [{ role: 'user', content: 'Ping' }],
+          max_tokens: 16,
         }),
       });
 
@@ -271,16 +313,32 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
         let parsed = errText;
         try {
           const jsonErr = JSON.parse(errText);
-          parsed = jsonErr.error?.message || jsonErr.message || errText;
+          parsed = jsonErr.error?.message || jsonErr.error || jsonErr.message || errText;
         } catch {
           // ignore
         }
+
+        if (response.status === 401 || response.status === 403) {
+          throw new Error(`身份验证失败 (HTTP ${response.status})：请检查 API Key 是否正确，或账户余额是否充裕。`);
+        } else if (response.status === 404) {
+          throw new Error(`请求路径未找到 (HTTP 404)：请检查 Base URL (${targetUrl}) 或模型名称 (${trimmedModel}) 是否拼写正确。`);
+        } else if (response.status === 429) {
+          throw new Error(`请求过于频繁或额度受限 (HTTP 429)：${parsed}`);
+        }
+
         throw new Error(`测试连通失败 (HTTP ${response.status}): ${parsed}`);
       }
 
-      setSuccessMessage('✅ 连通测试成功！API 服务地址与 Key 可以正常使用。');
+      const data = await response.json();
+      const reply = data.choices?.[0]?.message?.content ? ` (收到响应: "${data.choices[0].message.content.trim().slice(0, 30)}...")` : '';
+      setSuccessMessage(`✅ 连通测试成功！API 服务与模型 [${trimmedModel}] 正常响应${reply}`);
     } catch (err: any) {
-      setErrorMessage(err.message || 'API 连通测试失败，请检查 Base URL 与 API Key。');
+      console.error('Test connection error:', err);
+      let msg = err.message || 'API 连通测试失败，请检查 Base URL 与 API Key。';
+      if (msg === 'Failed to fetch' || err.name === 'TypeError') {
+        msg = '网络连接失败 (Failed to fetch)。请检查：\n1. Base URL 网址拼写是否正确；\n2. 目标 API 是否支持跨域(CORS)请求；\n3. 是否在 HTTPS 页面中请求了 HTTP 接口。';
+      }
+      setErrorMessage(msg);
     } finally {
       setIsTesting(false);
     }
@@ -314,9 +372,11 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
     try {
       const targetUrl = constructApiUrl(trimmedBaseUrl);
       
+      // Preserve multi-turn chat history (limit to last 20 messages for context safety)
+      const recentHistory = messages.slice(-20);
       const payloadMessages = [
         { role: 'system', content: systemPrompt },
-        ...messages.map(m => ({
+        ...recentHistory.map(m => ({
           role: m.role === 'ai' ? 'assistant' : 'user',
           content: m.content,
         })),
@@ -346,13 +406,15 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
         let parsedError = errorData;
         try {
           const jsonErr = JSON.parse(errorData);
-          parsedError = jsonErr.error?.message || jsonErr.message || errorData;
+          parsedError = jsonErr.error?.message || jsonErr.error || jsonErr.message || errorData;
         } catch {
           // ignore
         }
 
         if (response.status === 401 || response.status === 403) {
           throw new Error(`API Key 身份校验失败 (HTTP ${response.status})：请检查您填写的 API Key 是否正确无误，或者账户余额是否充裕。`);
+        } else if (response.status === 404) {
+          throw new Error(`请求路径未找到 (HTTP 404)：请检查 Base URL (${targetUrl}) 或模型名称 (${modelName}) 是否拼写正确。`);
         }
 
         throw new Error(`请求失败 (${response.status}): ${parsedError}`);
@@ -364,7 +426,10 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
       setMessages(prev => [...prev, { role: 'ai', content: aiResponse }]);
     } catch (error: any) {
       console.error('AI Request Error:', error);
-      const msg = error.message || '网络连接失败，请检查 API 地址、API Key 或网络状态。';
+      let msg = error.message || '网络连接失败，请检查 API 地址、API Key 或网络状态。';
+      if (msg === 'Failed to fetch' || error.name === 'TypeError') {
+        msg = '网络连接失败 (Failed to fetch)。请检查 Base URL 是否可访问或是否受 CORS 限制。';
+      }
       setErrorMessage(msg);
       setMessages(prev => [...prev, { role: 'ai', content: `❌ 请求出错: ${msg}` }]);
       setShowSettings(true);
@@ -388,6 +453,13 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
   const clearChat = () => {
     setMessages([]);
     setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      sessionStorage.removeItem('flux_ai_chat_messages');
+      localStorage.removeItem('flux_ai_chat_messages');
+    } catch (e) {
+      console.warn('Failed to clear chat storage:', e);
+    }
   };
 
   return (
@@ -404,11 +476,19 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
           <div className="flex flex-col">
             <span className="text-sm">Flux AI 助手</span>
             <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-normal">
-              <span className="truncate max-w-[100px]">{modelName || '自定义模型'}</span>
+              <span className="truncate max-w-[90px]">{modelName || '自定义模型'}</span>
+              {messages.length > 0 && (
+                <>
+                  <span className="text-slate-300">•</span>
+                  <span className="text-[10px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/80 px-1 py-0.2 rounded font-medium">
+                    {messages.length}条上下文
+                  </span>
+                </>
+              )}
               <span className="text-slate-300">•</span>
               <span className="text-emerald-600 dark:text-emerald-400 font-mono flex items-center gap-0.5">
                 <Lock size={9} />
-                {storageMode === 'session' ? '会话模式' : '本端保存'}
+                {storageMode === 'session' ? '会话' : '本端'}
               </span>
             </div>
           </div>
@@ -618,15 +698,36 @@ export const AIChat: React.FC<AIChatProps> = ({ editor, onClose }) => {
 
               {/* Action Toolbar */}
               <div className="pt-3 border-t border-[var(--border)] mt-4 space-y-2">
+                {/* Instant Feedback Alert inside Settings Panel */}
+                {successMessage && (
+                  <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-300 text-xs flex items-start gap-2 shadow-sm">
+                    <CheckCircle2 size={16} className="shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
+                    <div className="flex-1 leading-snug break-words">
+                      <p className="font-bold">连通测试通过</p>
+                      <p className="text-[11px] opacity-90 whitespace-pre-wrap">{successMessage}</p>
+                    </div>
+                  </div>
+                )}
+
+                {errorMessage && (
+                  <div className="p-2.5 bg-red-50 dark:bg-red-950/70 border border-red-200 dark:border-red-800 rounded-xl text-red-600 dark:text-red-300 text-xs flex items-start gap-2 shadow-sm">
+                    <AlertCircle size={16} className="shrink-0 mt-0.5 text-red-500 shrink-0" />
+                    <div className="flex-1 leading-snug break-words">
+                      <p className="font-bold">连通失败 / 校验异常</p>
+                      <p className="text-[11px] opacity-90 whitespace-pre-wrap">{errorMessage}</p>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={handleTestConnection}
                     disabled={isTesting}
-                    className="bg-[var(--bg-secondary)] border border-[var(--border)] hover:bg-[var(--bg-primary)] text-[var(--text-primary)] text-xs py-2 rounded-xl font-medium transition-all flex items-center justify-center gap-1 cursor-pointer"
+                    className="bg-[var(--bg-secondary)] border border-[var(--border)] hover:bg-[var(--bg-primary)] text-[var(--text-primary)] text-xs py-2 rounded-xl font-medium transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
                   >
-                    <RefreshCw size={12} className={isTesting ? 'animate-spin' : ''} />
-                    {isTesting ? '测试中...' : '测试连通性'}
+                    <RefreshCw size={12} className={isTesting ? 'animate-spin text-[var(--accent)]' : ''} />
+                    {isTesting ? '正在测试连通性...' : '测试连通性'}
                   </button>
 
                   <button

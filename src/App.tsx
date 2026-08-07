@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, createContext, useContext } from 'react';
 import { 
   FileText, Save, Download, Image as ImageIcon, 
   Monitor, Layout, Sun, Moon, Droplets, 
@@ -399,6 +399,7 @@ export default function App() {
 
   // Tiptap Editor Initialization
   const FLUXMARK_STORAGE_KEY = 'fluxmark_saved_doc_v1';
+  const processAndInsertMediaFileRef = useRef<((file: File) => Promise<void>) | undefined>(undefined);
 
   const editor = useEditor({
     extensions: [
@@ -466,6 +467,32 @@ export default function App() {
     editorProps: {
       attributes: {
         class: 'prose-custom w-full outline-none min-h-[600px] border-none focus:ring-0',
+      },
+      handleDrop: (view, event, slice, moved) => {
+        if (!moved && event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length > 0) {
+          const file = event.dataTransfer.files[0];
+          if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+            event.preventDefault();
+            if (processAndInsertMediaFileRef.current) {
+              processAndInsertMediaFileRef.current(file);
+            }
+            return true;
+          }
+        }
+        return false;
+      },
+      handlePaste: (view, event) => {
+        if (event.clipboardData && event.clipboardData.files && event.clipboardData.files.length > 0) {
+          const file = event.clipboardData.files[0];
+          if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+            event.preventDefault();
+            if (processAndInsertMediaFileRef.current) {
+              processAndInsertMediaFileRef.current(file);
+            }
+            return true;
+          }
+        }
+        return false;
       },
     },
     onUpdate: ({ editor }) => {
@@ -1352,6 +1379,11 @@ export default function App() {
   // 另存为：允许用户选择电脑上的任意路径保存文件
   const saveAsFile = async () => {
     if (!editor) return;
+
+    if (currentDirectoryHandle) {
+      await syncMediaToDirectory(currentDirectoryHandle);
+    }
+
     const markdownOutput = (editor.storage as any).markdown.getMarkdown();
     const defaultName = docName.endsWith('.md') ? docName : `${docName}.md`;
 
@@ -1683,8 +1715,8 @@ export default function App() {
 
       const children: any[] = [];
 
-      const parseNodes = (nodes: any[], listLevel = 0, listType?: 'bullet' | 'ordered') => {
-        nodes.forEach(node => {
+      const parseNodes = async (nodes: any[], listLevel = 0, listType?: 'bullet' | 'ordered') => {
+        for (const node of nodes) {
           switch (node.type) {
             case 'heading': {
               const level = node.attrs.level || 1;
@@ -1742,13 +1774,13 @@ export default function App() {
               break;
             }
             case 'bulletList':
-              if (node.content) parseNodes(node.content, listLevel + 1, 'bullet');
+              if (node.content) await parseNodes(node.content, listLevel + 1, 'bullet');
               break;
             case 'orderedList':
-              if (node.content) parseNodes(node.content, listLevel + 1, 'ordered');
+              if (node.content) await parseNodes(node.content, listLevel + 1, 'ordered');
               break;
             case 'listItem': {
-              if (node.content) parseNodes(node.content, listLevel);
+              if (node.content) await parseNodes(node.content, listLevel);
               break;
             }
             case 'table': {
@@ -1908,6 +1940,42 @@ export default function App() {
               children.push(new docx.Paragraph({ spacing: { after: 200 } }));
               break;
             }
+            case 'image':
+            case 'imageResize': {
+              const rawSrc = node.attrs?.src;
+              const imgSrc = rawSrc ? (getMediaBlobUrl(rawSrc) || rawSrc) : '';
+              if (imgSrc) {
+                try {
+                  const res = await fetch(imgSrc);
+                  const blob = await res.blob();
+                  const arrayBuffer = await blob.arrayBuffer();
+                  children.push(
+                    new docx.Paragraph({
+                      children: [
+                        new docx.ImageRun({
+                          data: arrayBuffer,
+                          transformation: {
+                            width: node.attrs?.width ? Math.min(parseInt(node.attrs.width), 550) : 500,
+                            height: node.attrs?.height ? parseInt(node.attrs.height) : 300,
+                          },
+                        } as any),
+                      ],
+                      alignment: docx.AlignmentType.CENTER,
+                      spacing: { before: 200, after: 200 },
+                    })
+                  );
+                } catch (err) {
+                  children.push(
+                    new docx.Paragraph({
+                      children: [new docx.TextRun({ text: `[图片: ${node.attrs?.alt || rawSrc}]`, italics: true, color: secondaryTextColor })],
+                      alignment: docx.AlignmentType.CENTER,
+                      spacing: { before: 200, after: 200 },
+                    })
+                  );
+                }
+              }
+              break;
+            }
             case 'blockMath': {
               children.push(
                 new docx.Paragraph({
@@ -1919,10 +1987,10 @@ export default function App() {
               break;
             }
           }
-        });
+        }
       };
 
-      if (json.content) parseNodes(json.content);
+      if (json.content) await parseNodes(json.content);
 
       const doc = new docx.Document({
         numbering: {
@@ -2020,6 +2088,8 @@ export default function App() {
       showToast(`视频已自动保存至 ${relativePath} 并插入文档`);
     }
   }, [editor, currentDirectoryHandle, refreshDirectory, showToast]);
+
+  processAndInsertMediaFileRef.current = processAndInsertMediaFile;
 
   // 图片上传与裁剪
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2329,7 +2399,7 @@ export default function App() {
   return (
     <div ref={containerRef} className="h-screen flex flex-col font-sans relative overflow-hidden select-none bg-[var(--bg-secondary)]">
       {/* --- 顶部工具栏 --- */}
-      <header className="h-14 border-b border-[var(--border)] bg-[var(--bg-primary)] px-3 sm:px-4 flex items-center justify-between z-40 shrink-0 gap-2 sm:gap-4 overflow-x-auto no-scrollbar">
+      <header className="h-14 border-b border-[var(--border)] bg-[var(--bg-primary)] px-3 sm:px-4 flex items-center justify-between z-40 shrink-0 gap-2 sm:gap-4">
         <div className="flex items-center gap-3 sm:gap-6 shrink-0">
           <button 
             onClick={() => setShowSidebar(!showSidebar)}
@@ -2906,7 +2976,7 @@ export default function App() {
                                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                             }`}
                           >
-                            🖼️ 图片 ({resources.filter(r => r.type === 'image').length})
+                            🎬 媒体 ({resources.filter(r => r.type === 'image' || (r.type as string) === 'video').length})
                           </button>
                         </div>
                       </div>
@@ -2934,7 +3004,7 @@ export default function App() {
                             if (!matchesName) return false;
                           }
                           if (resourceFilter === 'file') return res.type === 'file';
-                          if (resourceFilter === 'image') return res.type === 'image';
+                          if (resourceFilter === 'image') return res.type === 'image' || (res.type as string) === 'video';
                           return true;
                         });
 
@@ -2963,6 +3033,53 @@ export default function App() {
                         return filtered.map((res, i) => {
                           const isCurrentActive = res.name === docName;
 
+                          if (res.type === 'video') {
+                            const videoSrc = res.relativePath || res.url || (res.file ? URL.createObjectURL(res.file) : '');
+                            return (
+                              <div
+                                key={i}
+                                className="group relative p-2 rounded-xl border border-[var(--border)] hover:border-[var(--accent)]/50 hover:bg-[var(--bg-secondary)] transition-all flex items-center justify-between gap-2"
+                              >
+                                <div
+                                  onClick={() => {
+                                    if (videoSrc && editor) {
+                                      editor.chain().focus().setVideo({ src: videoSrc }).run();
+                                      showToast(`已插入视频 ${res.name} 到光标处`);
+                                    }
+                                  }}
+                                  className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer"
+                                >
+                                  <div className="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-500 flex items-center justify-center shrink-0">
+                                    <VideoIcon size={16} />
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-xs font-semibold truncate text-[var(--text-primary)] group-hover:text-[var(--accent)]">
+                                      {res.name}
+                                    </p>
+                                    <p className="text-[10px] text-[var(--text-secondary)]">
+                                      视频文件 {res.size ? `• ${(res.size / (1024 * 1024)).toFixed(1)} MB` : ''}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    onClick={() => {
+                                      if (videoSrc && editor) {
+                                        editor.chain().focus().setVideo({ src: videoSrc }).run();
+                                        showToast(`已插入视频 ${res.name} 到光标处`);
+                                      }
+                                    }}
+                                    title="插入到文档"
+                                    className="p-1 bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)] hover:text-white rounded-md transition-colors cursor-pointer"
+                                  >
+                                    <Plus size={14} />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          }
+
                           if (res.type === 'image') {
                             return (
                               <div
@@ -2974,6 +3091,7 @@ export default function App() {
                                     setPreviewImageInfo({
                                       url: res.url || (res.file ? URL.createObjectURL(res.file) : ''),
                                       name: res.name,
+                                      relativePath: res.relativePath,
                                       size: res.size,
                                       handle: res.handle,
                                       file: res.file,
@@ -3006,7 +3124,7 @@ export default function App() {
                                       setPreviewImageInfo({
                                         url: res.url || (res.file ? URL.createObjectURL(res.file) : ''),
                                         name: res.name,
-                                       relativePath: res.relativePath,
+                                        relativePath: res.relativePath,
                                         size: res.size,
                                         handle: res.handle,
                                         file: res.file,
@@ -3019,9 +3137,9 @@ export default function App() {
                                   </button>
                                   <button
                                     onClick={() => {
-                                      const imgUrl = res.url || (res.file ? URL.createObjectURL(res.file) : '');
-                                      if (imgUrl) {
-                                        editor?.chain().focus().setImage({ src: imgUrl, alt: res.name }).run();
+                                      const targetSrc = res.relativePath || res.url || (res.file ? URL.createObjectURL(res.file) : '');
+                                      if (targetSrc) {
+                                        editor?.chain().focus().setImage({ src: targetSrc, alt: res.name }).run();
                                         showToast(`已插入图片 ${res.name} 到光标处`);
                                       }
                                     }}
@@ -3825,59 +3943,93 @@ export default function App() {
                 {helpTab === 'tutorial' ? (
                   <div className="space-y-6 text-slate-700">
                     {/* Welcome Banner */}
-                    <div className="p-4 rounded-2xl bg-blue-50/80 border border-blue-100 flex items-start gap-3">
-                      <div className="p-2 bg-blue-500 text-white rounded-lg shrink-0 mt-0.5">
-                        <BookOpen size={18} />
+                    <div className="p-4 rounded-2xl bg-blue-50/80 border border-blue-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 bg-blue-500 text-white rounded-lg shrink-0 mt-0.5 sm:mt-0">
+                          <BookOpen size={18} />
+                        </div>
+                        <div className="text-xs leading-relaxed">
+                          <span className="font-bold text-blue-900 block text-sm mb-1">欢迎使用 FluxMark 智能 Markdown 编辑器</span>
+                          FluxMark 是一款兼具沉浸创作、AI 辅助写作、多媒体管理与全屏演示放映功能的现代编辑器。
+                        </div>
                       </div>
-                      <div className="text-xs leading-relaxed">
-                        <span className="font-bold text-blue-900 block text-sm mb-1">欢迎使用 FluxMark 智能 Markdown 编辑器</span>
-                        FluxMark 是一款兼具沉浸创作、AI 辅助写作、实时可视化与演示放映功能的现代编辑器。下文将帮您迅速熟悉核心操作！
-                      </div>
+                      <button
+                        onClick={() => {
+                          setShowHelpModal(false);
+                          loadSampleDoc();
+                        }}
+                        className="px-3.5 py-2 bg-[var(--accent)] hover:bg-blue-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 shrink-0 transition-all cursor-pointer"
+                      >
+                        <RefreshCcw size={14} />
+                        加载 / 重置示例文档
+                      </button>
                     </div>
 
                     {/* Tutorial Cards Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Step 1 */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {/* Card 1 */}
                       <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-white hover:border-blue-200 hover:shadow-sm transition-all space-y-2">
                         <div className="flex items-center gap-2 text-blue-600 font-bold text-sm">
                           <Type size={16} />
-                          <span>1. 文本排版与格式化</span>
+                          <span>1. 文本排版与智能格式化</span>
                         </div>
                         <p className="text-xs text-slate-500 leading-relaxed">
-                          直接输入标准的 Markdown 语法（如 <code className="bg-slate-200 px-1 py-0.5 rounded text-slate-700"># 标题</code> 或 <code className="bg-slate-200 px-1 py-0.5 rounded text-slate-700">- 列表</code>），或在编辑区中<b>选中文本</b>，即可唤起快捷排版工具栏一键加粗、插入高亮、代码块或公式。
+                          直接输入标准 Markdown 语法（如 <code className="bg-slate-200 px-1 py-0.5 rounded text-slate-700"># 标题</code>），或在编辑区中<b>选中文本</b>，唤起浮动工具栏一键加粗、高亮，点击 ✨ <b>智能排版</b> 自动规范中英文空格。
                         </p>
                       </div>
 
-                      {/* Step 2 */}
+                      {/* Card 2 */}
                       <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-white hover:border-blue-200 hover:shadow-sm transition-all space-y-2">
                         <div className="flex items-center gap-2 text-indigo-600 font-bold text-sm">
                           <ImageIcon size={16} />
-                          <span>2. 多媒体与公式嵌入</span>
+                          <span>2. 多媒体与本地文件夹联动</span>
                         </div>
                         <p className="text-xs text-slate-500 leading-relaxed">
-                          您可以将图片或视频<b>拖拽/粘贴</b>到编辑窗口。选中图片可在线裁剪；工具栏还支持插入 KateX 数学公式 <code className="bg-slate-200 px-1 py-0.5 rounded text-slate-700">$E=mc^2$</code>。
+                          将图片或视频<b>拖拽/粘贴</b>入编辑窗口。关联本地文件夹后，媒体文件会自动存入当前目录下的 <code className="bg-slate-200 px-1 py-0.5 rounded text-slate-700">.med</code> 文件夹。选中图片可在线裁剪！
                         </p>
                       </div>
 
-                      {/* Step 3 */}
+                      {/* Card 3 */}
+                      <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-white hover:border-blue-200 hover:shadow-sm transition-all space-y-2">
+                        <div className="flex items-center gap-2 text-amber-600 font-bold text-sm">
+                          <SparklesIcon size={16} />
+                          <span>3. KaTeX 公式与代码高亮</span>
+                        </div>
+                        <p className="text-xs text-slate-500 leading-relaxed">
+                          内置 KaTeX 引擎，支持行内公式 <code className="bg-slate-200 px-1 py-0.5 rounded text-slate-700">$E=mc^2$</code> 与块级高阶方程；代码块支持多语言语法高亮与一键复制。
+                        </p>
+                      </div>
+
+                      {/* Card 4 */}
                       <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-white hover:border-blue-200 hover:shadow-sm transition-all space-y-2">
                         <div className="flex items-center gap-2 text-purple-600 font-bold text-sm">
                           <SparklesIcon size={16} />
-                          <span>3. AI 智能对话与续写</span>
+                          <span>4. AI 智能对话与创作辅助</span>
                         </div>
                         <p className="text-xs text-slate-500 leading-relaxed">
-                          点击右上角的 <b>AI 按钮</b>，可以对选中文本进行润色、总结、翻译或生成新段落。您也可以像与助手聊天一样随时对文章提问。
+                          点击右上角的 <b>AI 按钮</b> 唤起对话助手，支持文章润色、内容总结、多语言翻译与续写，兼容 DeepSeek、OpenAI、SiliconFlow 等 API 接口。
                         </p>
                       </div>
 
-                      {/* Step 4 */}
+                      {/* Card 5 */}
                       <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-white hover:border-blue-200 hover:shadow-sm transition-all space-y-2">
                         <div className="flex items-center gap-2 text-emerald-600 font-bold text-sm">
                           <Monitor size={16} />
-                          <span>4. 全屏放映与标注</span>
+                          <span>5. 全屏 PPT 演示与现场批注</span>
                         </div>
                         <p className="text-xs text-slate-500 leading-relaxed">
-                          点击顶部<b>放映图标</b>将文档转换为全屏幻灯片展示！悬浮工具栏提供画笔圈画、橡皮擦、激光笔效果以及会议倒计时功能。
+                          在文档中使用 <code className="bg-slate-200 px-1 py-0.5 rounded text-slate-700">---</code> 划定分页，按 <b>F11</b> 或点击顶部放映按钮即可全屏展示！现场提供画笔批注、激光笔、倒计时与随机抽签转盘。
+                        </p>
+                      </div>
+
+                      {/* Card 6 */}
+                      <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-white hover:border-blue-200 hover:shadow-sm transition-all space-y-2">
+                        <div className="flex items-center gap-2 text-rose-600 font-bold text-sm">
+                          <Folder size={16} />
+                          <span>6. 多格式导出与安全备份</span>
+                        </div>
+                        <p className="text-xs text-slate-500 leading-relaxed">
+                          支持将文档导出为 <b>Markdown、HTML、PDF 及 Word (.docx)</b> 格式；系统具备自动保存与极简离线存储保障，数据隐私全在本地。
                         </p>
                       </div>
                     </div>
@@ -4247,6 +4399,8 @@ function QuickTool({ icon, onClick, title, isActive, disabled }: { icon: React.R
   );
 }
 
+const ToolbarGroupContext = createContext<(() => void) | null>(null);
+
 function ToolbarGroup({ label, children, alignRight = false }: { label: string, children: React.ReactNode, alignRight?: boolean }) {
   const [isOpen, setIsOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -4259,37 +4413,48 @@ function ToolbarGroup({ label, children, alignRight = false }: { label: string, 
     return () => document.removeEventListener('mousedown', clickOutside);
   }, []);
 
+  const closeMenu = () => setIsOpen(false);
+
   return (
-    <div ref={ref} className="relative shrink-0">
-      <button 
-        onClick={() => setIsOpen(!isOpen)}
-        className="px-3 py-1.5 hover:bg-[var(--bg-secondary)] rounded-lg text-sm text-[var(--text-secondary)] font-medium transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
-      >
-        {label}
-        <ChevronRight size={14} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} />
-      </button>
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: 5 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 5 }}
-            className={`absolute top-full mt-2 bg-[var(--bg-primary)] border border-[var(--border)] rounded-2xl shadow-2xl overflow-y-auto max-h-[85vh] py-1.5 z-50 p-1.5 font-sans min-w-max whitespace-nowrap ${
-              alignRight ? 'right-0 left-auto' : 'left-0'
-            }`}
-          >
-            {children}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+    <ToolbarGroupContext.Provider value={closeMenu}>
+      <div ref={ref} className="relative shrink-0">
+        <button 
+          onClick={() => setIsOpen(!isOpen)}
+          className={`px-3 py-1.5 hover:bg-[var(--bg-secondary)] rounded-lg text-sm font-medium transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap ${
+            isOpen ? 'bg-[var(--bg-secondary)] text-[var(--accent)] font-bold' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+          }`}
+        >
+          {label}
+          <ChevronRight size={14} className={`transition-transform ${isOpen ? 'rotate-90 text-[var(--accent)]' : ''}`} />
+        </button>
+        <AnimatePresence>
+          {isOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: 5, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 5, scale: 0.98 }}
+              transition={{ duration: 0.12 }}
+              className={`absolute top-full mt-1.5 bg-[var(--bg-primary)] border border-[var(--border)] rounded-2xl shadow-2xl overflow-y-auto max-h-[85vh] py-1.5 z-50 p-1.5 font-sans min-w-max whitespace-nowrap ${
+                alignRight ? 'right-0 left-auto' : 'left-0'
+              }`}
+            >
+              {children}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </ToolbarGroupContext.Provider>
   );
 }
 
 function ToolbarItem({ icon, label, onClick }: { icon: React.ReactNode, label: string, onClick: () => void }) {
+  const closeMenu = useContext(ToolbarGroupContext);
   return (
     <button 
-      onClick={onClick}
+      onClick={() => {
+        onClick();
+        closeMenu?.();
+      }}
       className="w-full text-left px-3.5 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] rounded-xl flex items-center gap-3 transition-colors cursor-pointer group whitespace-nowrap min-w-max"
     >
       <span className="text-[var(--text-secondary)] group-hover:text-[var(--accent)] shrink-0">{icon}</span>
@@ -4370,9 +4535,9 @@ function PresToolBtn({ active, icon, onClick, label, disabled }: { active: boole
 
 // --- 初始示例模板内容 ---
 const initialMarkdown = `
-# 🌟 欢迎使用 FluxMark 智能文档与全屏演示平台
+# 🌟 欢迎使用 FluxMark 智能文档与演示平台
 
-FluxMark 是一款专注于**极致创作体验**的现代 Markdown 编辑器。它完美融合了**沉浸式写作**、**AI 智能润色**、**交互式任务清单**、**KaTeX 科学公式**、**多语言代码高亮**以及**全屏 PPT 演示放映**等核心功能。
+FluxMark 是一款专注于**极致创作体验**与**高效演示**的现代 Markdown 编辑器。它完美融合了**沉浸式写作**、**本地文件夹深度同步**、**多媒体拖拽插入**、**一键中英文智能排版**、**KaTeX 科学公式**、**AI 智能助手**以及**全屏 PPT 演示放映**等核心功能。
 
 > 💡 **设计理念**：让思想自由流淌，让表达精美非凡。无论是撰写技术文档、学术论文、会议纪要，还是现场演讲汇报，FluxMark 都能为您提供无缝且优雅的操作体验。
 
@@ -4382,10 +4547,12 @@ FluxMark 是一款专注于**极致创作体验**的现代 Markdown 编辑器。
 
 您可以直接在下方**点击复选框**开启或完成任务：
 
-- [x] **开启 FluxMark**：感受无缝即时渲染与高颜值 Typography 字体排版
+- [x] **开启 FluxMark 视界**：感受无缝即时渲染与高颜值 Typography 字体排版
 - [x] **体验丰富文本修饰**：选中文字后试试 **加粗**、*斜体*、==重点行内高亮== 与 ~删除线~
 - [x] **一键智能格式排版**：选中文本在浮动工具栏中点击 ✨ **一键智能排版** 修正中英文空格与盘古排版规范
-- [ ] **探索 KaTeX 科学公式**：体验行内 $E = mc^2$ 与块级微积分 / 线性代数方程
+- [ ] **体验多媒体拖拽与裁剪**：直接将图片或视频**拖拽/粘贴**入编辑区，选中图片可在线裁剪
+- [ ] **关联本地工作区**：点击顶部 “打开文件夹” 绑定本地目录，媒体将自动存入 \`.med\` 独立文件夹
+- [ ] **探索 KaTeX 科学公式**：体验行内 $e^{i\pi} + 1 = 0$ 与块级微积分方程
 - [ ] **AI 智能助手协作**：点击右上角 AI 图标进行文章润色、段落总结或多语言翻译
 - [ ] **全屏 PPT 演示放映**：按 \`F11\` 或点击顶部放映按钮，即可将包含 \`---\` 的文档直接转为全屏幻灯片展示！
 
@@ -4396,7 +4563,7 @@ FluxMark 是一款专注于**极致创作体验**的现代 Markdown 编辑器。
 FluxMark 支持丰富的标准及扩展 Markdown 格式，帮助您清晰层级化地表达观点：
 
 ### 1. 文本强调与标记
-- **粗体强调**：输入 \`**加粗文本**\` 或 \`****双重加粗****\` 获得 **强烈的视觉焦点**
+- **粗体强调**：输入 \`**加粗文本**\` 获得 **强烈的视觉焦点**
 - *斜体排版*：使用 \`*斜体文字*\` 或 \`_斜体强调_\` 表达 *精致的文意倾斜*
 - ***粗斜体组合***：同时触发 \`***粗斜体***\` 呈现 ***强烈瞩目效果***
 - ==重点高亮==：使用 \`==高亮包裹==\` 为关键短语涂上 ==醒目的荧光高亮色==
@@ -4408,6 +4575,16 @@ FluxMark 支持丰富的标准及扩展 Markdown 格式，帮助您清晰层级�
 > “好的编辑器不应该打断创作逻辑，而应该像延伸的思维神经一样，顺应你的灵感发散与归纳。”
 > 
 > —— *FluxMark 设计团队*
+
+---
+
+## 🎬 多媒体与本地资源同步
+
+FluxMark 提供了极其平滑的多媒体与本地文件同步能力：
+
+1. **图片与视频拖拽**：直接将电脑中的图片 (\`.jpg\`, \`.png\`, \`.webp\`) 或视频 (\`.mp4\`, \`.webm\`) 拖入编辑器。
+2. **本地文件夹联动**：绑定工作区目录后，插入的多媒体资源将自动妥善存入当前目录下的 \`.med\` 文件夹中，Markdown 文件将自动建立相对路径连接。
+3. **图片在线裁剪**：点击文档中的图片，选择 “裁剪” 按钮即可调出交互式裁剪模版。
 
 ---
 
@@ -4438,6 +4615,7 @@ interface EditorCapabilities {
   aiAssistant: boolean;
   katexEngine: boolean;
   pptPresentation: boolean;
+  mediaDirectorySync: boolean;
   theme: 'light' | 'dark' | 'sepia';
 }
 
@@ -4452,6 +4630,7 @@ FluxMarkApp.init({
   aiAssistant: true,
   katexEngine: true,
   pptPresentation: true,
+  mediaDirectorySync: true,
   theme: 'light',
 });
 \`\`\`
@@ -4474,7 +4653,7 @@ print("Confidence Scores:", calculate_confidence([2.0, 1.0, 0.1]))
 | 功能模块 | 对应快捷键 / 操作入口 | 功能说明 | 推荐度 |
 | :--- | :---: | :--- | :---: |
 | **保存文档** | \`Ctrl + S\` | 实时写入文件或更新本地缓存 | ⭐⭐⭐⭐⭐ |
-| **一键智能排版** | 选区浮动栏 ✨ | 自动规范中英文间距与符号格式 | ⭐⭐⭐⭐⭐ |
+| **一键智能排版** | 选区浮动栏 ✨ | 自动规范中英文间距与盘古排版规范 | ⭐⭐⭐⭐⭐ |
 | **全屏 PPT 演示** | \`F11\` / 放映图标 | 瞬间将 Markdown 转为演示幻灯片 | ⭐⭐⭐⭐⭐ |
 | **AI 智能对话** | 右上角 AI 图标 | 提供润色、总结、翻译与续写辅助 | ⭐⭐⭐⭐⭐ |
 | **插入数学公式** | \`KaTeX\` / \`$$\` | 秒级渲染专业排版的数学方程 | ⭐⭐⭐⭐ |
@@ -4504,4 +4683,5 @@ print("Confidence Scores:", calculate_confidence([2.0, 1.0, 0.1]))
 ---
 _FluxMark - 灵感流淌，极致表达。_
 `;
+
 

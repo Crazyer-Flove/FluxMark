@@ -2,7 +2,7 @@ export interface ResourceItem {
   id: string;
   name: string;
   relativePath: string;
-  type: 'file' | 'folder' | 'image' | 'code' | 'other';
+  type: 'file' | 'folder' | 'image' | 'video' | 'code' | 'other';
   handle?: any;
   file?: File | Blob;
   size?: number;
