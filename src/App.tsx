@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toCanvas } from 'html-to-image';
+import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { saveAs } from 'file-saver';
 import * as docx from 'docx';
@@ -58,6 +59,9 @@ import { PresBgModal, PresBgConfig, DEFAULT_PRES_BG_CONFIG, getPresBgStyle, rend
 import { ResourceItem, PreviewImageInfo } from './types';
 import { ImagePreviewModal } from './components/ImagePreviewModal';
 import { NewFileModal } from './components/NewFileModal';
+import { TemplateModal } from './components/TemplateModal';
+import { DOCUMENT_TEMPLATES, DocumentTemplate } from './data/templates';
+import { PDFExportModal, PDFExportOptions, ImageExportOptions } from './components/PDFExportModal';
 import { executeSmartFormat } from './utils/smartFormat';
 import { Sparkles as SparklesIcon, ShieldCheck as ShieldCheckIcon, Heart as HeartIcon } from 'lucide-react';
 
@@ -70,52 +74,64 @@ type SidebarTab = 'outline' | 'resources';
 interface ThemeOption {
   id: Theme;
   name: string;
+  tag: string;
   desc: string;
   icon: React.ReactNode;
   bgHex: string;
   accentHex: string;
+  cardGradient: string;
 }
 
 const THEME_OPTIONS: ThemeOption[] = [
   {
     id: 'light',
     name: '默认简约',
-    desc: '经典亮白优雅布局，高对比度清爽界面',
+    tag: '经典优雅',
+    desc: '高对比度清爽亮白，排版层次清晰',
     icon: <Sun size={16} />,
     bgHex: '#ffffff',
-    accentHex: '#1161f3',
+    accentHex: '#2563eb',
+    cardGradient: 'from-blue-500 to-indigo-600',
   },
   {
     id: 'dark',
     name: '暗夜极客',
-    desc: '深色极客黑灰调，夜间灵感专注创作',
+    tag: '沉浸极客',
+    desc: '深邃蓝黑电光天蓝，夜间专注不刺眼',
     icon: <Moon size={16} />,
-    bgHex: '#0f172a',
+    bgHex: '#0b0f19',
     accentHex: '#38bdf8',
+    cardGradient: 'from-slate-800 to-sky-600',
   },
   {
     id: 'ocean',
     name: '深海幽蓝',
-    desc: '深邃沉静海洋蓝，平和高效编写体验',
+    tag: '深海沉静',
+    desc: '浩瀚蔚蓝与海青色，舒缓沉静思考',
     icon: <Droplets size={16} />,
-    bgHex: '#0b192c',
-    accentHex: '#008dda',
+    bgHex: '#081325',
+    accentHex: '#06b6d4',
+    cardGradient: 'from-cyan-700 to-blue-900',
   },
   {
     id: 'warm',
     name: '暖阳复古',
-    desc: '温润羊皮纸米黄，长时间阅读舒适护眼',
+    tag: '温润护眼',
+    desc: '典雅羊皮纸暖棕调，长时间阅读舒适',
     icon: <BookOpen size={16} />,
-    bgHex: '#fdfbf7',
+    bgHex: '#faf5eb',
     accentHex: '#d97706',
+    cardGradient: 'from-amber-600 to-orange-700',
   },
   {
     id: 'mint',
     name: '薄荷清新',
-    desc: '自然舒缓翡翠绿，缓解视疲劳清爽宜人',
+    tag: '自然清新',
+    desc: '舒缓森林翡翠绿，缓解视疲劳宜人',
     icon: <SparklesIcon size={16} />,
-    bgHex: '#f2fbf7',
+    bgHex: '#f2faf5',
     accentHex: '#059669',
+    cardGradient: 'from-emerald-600 to-teal-700',
   },
 ];
 
@@ -293,8 +309,14 @@ export default function App() {
   const [selection, setSelection] = useState<SelectionState>({ top: 0, left: 0, visible: false, text: '', range: null });
   const [showAIChat, setShowAIChat] = useState<boolean>(false);
   const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
+  const [showTemplateModal, setShowTemplateModal] = useState<boolean>(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState<boolean>(false);
   const [showSponsorModal, setShowSponsorModal] = useState<boolean>(false);
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState<boolean>(false);
+  const [exportModalTab, setExportModalTab] = useState<'pdf' | 'image'>('pdf');
+  const [isPdfModalGenerating, setIsPdfModalGenerating] = useState<boolean>(false);
+  const [pdfExportProgress, setPdfExportProgress] = useState<number>(0);
+  const [pdfExportStatusText, setPdfExportStatusText] = useState<string>('');
   const [helpTab, setHelpTab] = useState<'tutorial' | 'shortcuts'>('tutorial');
   const [shortcutFilter, setShortcutFilter] = useState<string>('');
   const [cropImage, setCropImage] = useState<string | null>(null);
@@ -1124,17 +1146,17 @@ export default function App() {
     }
   };
 
-  const loadSampleDoc = () => {
+  const handleSelectTemplate = (template: DocumentTemplate) => {
     if (!editor) return;
-    
-    const executeLoad = () => {
-      const sampleHtml = transformMarkdownToMathHTML(initialMarkdown);
-      editor.commands.setContent(sampleHtml);
+
+    const executeApply = () => {
+      const parsedHtml = transformMarkdownToMathHTML(template.content);
+      editor.commands.setContent(parsedHtml);
       editor.commands.focus();
-      setDocName('示例演示文档.md');
+      setDocName(template.docName);
       setCurrentFileHandle(null);
-      localStorage.setItem(FLUXMARK_STORAGE_KEY, sampleHtml);
-      showToast('已加载示例模版');
+      localStorage.setItem(FLUXMARK_STORAGE_KEY, parsedHtml);
+      showToast(`已成功载入示例模版: ${template.title}`);
     };
 
     const currentContent = editor.getHTML();
@@ -1143,14 +1165,18 @@ export default function App() {
     if (!isDocEmpty) {
       setConfirmModal({
         isOpen: true,
-        title: '加载示例模版',
-        message: '确定要重置并加载示例模版吗？当前编辑的内容将被替换。',
-        confirmText: '确定加载',
-        onConfirm: executeLoad,
+        title: '载入示例模版确认',
+        message: `确定要载入 “${template.title}” 吗？当前编辑中的文档内容将被覆盖。`,
+        confirmText: '确定载入模版',
+        onConfirm: executeApply,
       });
     } else {
-      executeLoad();
+      executeApply();
     }
+  };
+
+  const loadSampleDoc = () => {
+    setShowTemplateModal(true);
   };
 
   const scanDirectoryEntries = async (dirHandle: any, parentPath = ''): Promise<ResourceItem[]> => {
@@ -1524,140 +1550,491 @@ export default function App() {
     }
   };
 
-  const exportPDF = async () => {
+  const hexToRgb = (hex: string): { r: number; g: number; b: number } => {
+    let c = hex.replace('#', '');
+    if (c.length === 3) {
+      c = c.split('').map(x => x + x).join('');
+    }
+    const num = parseInt(c, 16);
+    return {
+      r: (num >> 16) & 255,
+      g: (num >> 8) & 255,
+      b: num & 255
+    };
+  };
+
+  const parsePageRange = (rangeStr: string, totalPages: number): number[] => {
+    if (!rangeStr || !rangeStr.trim()) return Array.from({ length: totalPages }, (_, i) => i + 1);
+
+    const pageSet = new Set<number>();
+    const parts = rangeStr.split(/[,，]/);
+
+    for (const part of parts) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+
+      const rangeMatch = trimmed.match(/^(\d+)\s*[-~:─—–..]+\s*(\d+)$/);
+      if (rangeMatch) {
+        const start = parseInt(rangeMatch[1], 10);
+        const end = parseInt(rangeMatch[2], 10);
+        if (!isNaN(start) && !isNaN(end)) {
+          const min = Math.min(start, end);
+          const max = Math.max(start, end);
+          for (let p = min; p <= max; p++) {
+            if (p >= 1 && p <= totalPages) {
+              pageSet.add(p);
+            }
+          }
+        }
+      } else {
+        const singleNum = parseInt(trimmed, 10);
+        if (!isNaN(singleNum) && singleNum >= 1 && singleNum <= totalPages) {
+          pageSet.add(singleNum);
+        }
+      }
+    }
+
+    const result = Array.from(pageSet).sort((a, b) => a - b);
+    return result.length > 0 ? result : Array.from({ length: totalPages }, (_, i) => i + 1);
+  };
+
+  const generateCanvasFromDom = async (
+    element: HTMLElement,
+    backgroundColor: string,
+    scale: number = 2,
+    editorHtml?: string
+  ): Promise<HTMLCanvasElement> => {
+    // 1. Create a clean offscreen container positioned inside the viewport for reliable rendering
+    const width = Math.max(element.offsetWidth || 800, 720);
+    const container = document.createElement('div');
+    container.id = 'fluxmark-export-render-container';
+    container.style.position = 'fixed';
+    container.style.top = '0';
+    container.style.left = '0';
+    container.style.width = `${width}px`;
+    container.style.height = 'auto';
+    container.style.minHeight = '400px';
+    container.style.zIndex = '-9999';
+    container.style.opacity = '0.99';
+    container.style.pointerEvents = 'none';
+    container.style.backgroundColor = backgroundColor;
+
+    const isDarkBg = backgroundColor === '#0b0f19' || backgroundColor === '#081325';
+    const textColor = isDarkBg ? '#f8fafc' : '#0f172a';
+    container.style.color = textColor;
+    container.style.padding = '40px';
+    container.style.boxSizing = 'border-box';
+    container.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+    container.style.lineHeight = '1.7';
+    container.style.fontSize = '15px';
+
+    if (editorHtml && editorHtml.trim()) {
+      container.innerHTML = `
+        <style>
+          #fluxmark-export-render-container { box-sizing: border-box; word-break: break-word; }
+          #fluxmark-export-render-container h1 { font-size: 2rem; font-weight: 800; margin-top: 1.2em; margin-bottom: 0.6em; line-height: 1.25; color: ${textColor}; }
+          #fluxmark-export-render-container h2 { font-size: 1.5rem; font-weight: 700; margin-top: 1.2em; margin-bottom: 0.5em; line-height: 1.3; color: ${textColor}; }
+          #fluxmark-export-render-container h3 { font-size: 1.25rem; font-weight: 600; margin-top: 1.1em; margin-bottom: 0.4em; color: ${textColor}; }
+          #fluxmark-export-render-container p { margin-top: 0; margin-bottom: 1em; line-height: 1.75; color: ${textColor}; }
+          #fluxmark-export-render-container ul, #fluxmark-export-render-container ol { padding-left: 1.5em; margin-bottom: 1em; }
+          #fluxmark-export-render-container li { margin-bottom: 0.35em; line-height: 1.6; }
+          #fluxmark-export-render-container blockquote { border-left: 4px solid #3b82f6; padding-left: 1em; margin-left: 0; margin-bottom: 1em; opacity: 0.88; font-style: italic; }
+          #fluxmark-export-render-container pre { background: ${isDarkBg ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)'}; padding: 1em; border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13px; margin-bottom: 1em; white-space: pre-wrap; }
+          #fluxmark-export-render-container code { background: ${isDarkBg ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)'}; padding: 0.2em 0.4em; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13px; }
+          #fluxmark-export-render-container pre code { background: none; padding: 0; }
+          #fluxmark-export-render-container img { max-width: 100%; height: auto; border-radius: 8px; margin: 1em 0; display: block; }
+          #fluxmark-export-render-container table { width: 100%; border-collapse: collapse; margin-bottom: 1em; }
+          #fluxmark-export-render-container th, #fluxmark-export-render-container td { border: 1px solid ${isDarkBg ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)'}; padding: 8px 12px; text-align: left; }
+          #fluxmark-export-render-container th { background: ${isDarkBg ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'}; font-weight: 700; }
+          #fluxmark-export-render-container hr { border: none; border-top: 1px solid ${isDarkBg ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)'}; margin: 2em 0; }
+        </style>
+        <div class="fluxmark-export-html-content">
+          ${editorHtml}
+        </div>
+      `;
+    } else {
+      const clone = element.cloneNode(true) as HTMLElement;
+      // Strip buttons and overlays
+      const toRemove = clone.querySelectorAll('button, script, iframe, .fixed, .pdf-export-modal-root, .toolbar-root');
+      toRemove.forEach(el => el.remove());
+      container.appendChild(clone);
+    }
+
+    document.body.appendChild(container);
+
+    try {
+      // Ensure all inline images are loaded before rendering canvas
+      const imgs = Array.from(container.querySelectorAll('img'));
+      if (imgs.length > 0) {
+        await Promise.all(
+          imgs.map((img) => {
+            if (img.complete) return Promise.resolve();
+            return new Promise<void>((resolve) => {
+              img.onload = () => resolve();
+              img.onerror = () => resolve();
+            });
+          })
+        );
+      }
+
+      // Attempt 1: html2canvas on container at requested scale
+      try {
+        const canvas = await html2canvas(container, {
+          scale: scale,
+          backgroundColor: backgroundColor,
+          useCORS: true,
+          allowTaint: true,
+          logging: false,
+        });
+        if (canvas && canvas.width > 0 && canvas.height > 0) {
+          return canvas;
+        }
+      } catch (err1) {
+        console.warn('html2canvas on export container failed:', err1);
+      }
+
+      // Attempt 2: html2canvas on container at scale 1
+      try {
+        const canvas = await html2canvas(container, {
+          scale: 1,
+          backgroundColor: backgroundColor,
+          useCORS: true,
+          allowTaint: true,
+          logging: false,
+        });
+        if (canvas && canvas.width > 0 && canvas.height > 0) {
+          return canvas;
+        }
+      } catch (err2) {
+        console.warn('html2canvas scale 1 failed:', err2);
+      }
+
+      // Attempt 3: toCanvas (html-to-image) on container
+      try {
+        const emptyPlaceholder =
+          'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU55ErJggg==';
+        const c3 = await toCanvas(container, {
+          pixelRatio: scale,
+          backgroundColor: backgroundColor,
+          skipFonts: true,
+          fontEmbedCSS: '',
+          imagePlaceholder: emptyPlaceholder,
+        });
+        if (c3 && c3.width > 0 && c3.height > 0) {
+          return c3;
+        }
+      } catch (err3) {
+        console.warn('toCanvas on container failed:', err3);
+      }
+
+      // Attempt 4: html2canvas directly on the live element
+      try {
+        const canvas = await html2canvas(element, {
+          scale: scale,
+          backgroundColor: backgroundColor,
+          useCORS: true,
+          allowTaint: true,
+          logging: false,
+          ignoreElements: (node) => {
+            if (node.tagName) {
+              const tag = node.tagName.toLowerCase();
+              if (['script', 'iframe', 'button'].includes(tag)) return true;
+              if (
+                node.classList &&
+                (node.classList.contains('fixed') ||
+                  node.classList.contains('pdf-export-modal-root') ||
+                  node.classList.contains('toolbar-root'))
+              ) {
+                return true;
+              }
+            }
+            return false;
+          },
+        });
+        if (canvas && canvas.width > 0 && canvas.height > 0) {
+          return canvas;
+        }
+      } catch (err4) {
+        console.warn('html2canvas live element failed:', err4);
+      }
+
+      // Ultimate Fallback: Direct 2D Canvas layout engine
+      const fallbackCanvas = document.createElement('canvas');
+      const containerHeight = Math.max(container.offsetHeight || 600, 400);
+      fallbackCanvas.width = Math.round(width * scale);
+      fallbackCanvas.height = Math.round(containerHeight * scale);
+      const ctx = fallbackCanvas.getContext('2d');
+      if (ctx) {
+        ctx.scale(scale, scale);
+        ctx.fillStyle = backgroundColor;
+        ctx.fillRect(0, 0, width, containerHeight);
+
+        ctx.fillStyle = textColor;
+        ctx.font = '16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+        const textContent = container.innerText || element.innerText || 'FluxMark Document';
+        const lines = textContent.split('\n');
+        let currentY = 40;
+        for (const line of lines) {
+          if (currentY > containerHeight - 20) break;
+          if (line.trim()) {
+            ctx.fillText(line.slice(0, 90), 32, currentY);
+            currentY += 24;
+          } else {
+            currentY += 12;
+          }
+        }
+        return fallbackCanvas;
+      }
+
+      throw new Error('Canvas render failed on all attempts');
+    } finally {
+      if (container.parentNode) {
+        container.parentNode.removeChild(container);
+      }
+    }
+  };
+
+  const executeExportPDF = async (exportOpts: PDFExportOptions) => {
     if (!editor) return;
     const editorEl = editor.view.dom;
     if (!editorEl) return;
     
-    // Target the main document container for capture
     const captureEl = (editorEl.closest('.max-w-4xl') || editorEl.parentElement) as HTMLElement;
     if (!captureEl) return;
 
+    setIsPdfModalGenerating(true);
+    setPdfExportProgress(5);
+    setPdfExportStatusText('正在初始化导出配置与排版测算...');
+
+    const themeObj = THEME_OPTIONS.find(t => t.id === theme);
+    const bgHex = themeObj?.bgHex || '#ffffff';
+
     const originalTransform = captureEl.style.transform;
     const originalZoom = captureEl.style.zoom;
-    const originalWidth = captureEl.style.width;
-    const originalMaxWidth = captureEl.style.maxWidth;
     const originalHeight = captureEl.style.height;
     const originalOverflow = captureEl.style.overflow;
 
     try {
-      showToast('⏳ 正在生成高分辨率 PDF，请稍候...');
-      
+      showToast('⏳ 正在生成矢量 PDF，请稍候...');
+
       captureEl.style.transform = 'none';
       captureEl.style.zoom = '1';
-      captureEl.style.width = '800px'; 
-      captureEl.style.maxWidth = 'none';
       captureEl.style.height = 'auto';
       captureEl.style.overflow = 'visible';
 
-      const canvas = await toCanvas(captureEl, { 
-        pixelRatio: 2,
-        backgroundColor: theme === 'dark' ? '#0f172a' : '#ffffff',
-        filter: (node) => {
-          if (node instanceof HTMLElement) {
-            if (node.classList.contains('fixed') || node.classList.contains('absolute') || node.tagName === 'BUTTON') {
-              return false;
-            }
-          }
-          return true;
-        },
-        style: {
-          padding: '40px',
-        }
-      });
+      setPdfExportProgress(20);
+      setPdfExportStatusText('正在按选定采样精度绘制 DOM 画布...');
 
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      
-      const imgWidth = pdfWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      
-      let heightLeft = imgHeight;
-      let position = 0;
-
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pdfHeight;
-
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight; 
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pdfHeight;
+      const scale = exportOpts.pageQuality === 'high' ? 2 : 1.5;
+      const editorHtml = editor ? editor.getHTML() : undefined;
+      let canvas: HTMLCanvasElement | null = null;
+      try {
+        canvas = await generateCanvasFromDom(captureEl, bgHex, scale, editorHtml);
+      } catch (errRender) {
+        console.warn('High quality canvas render failed, trying standard quality...', errRender);
+        setPdfExportProgress(35);
+        setPdfExportStatusText('正在降级为 150DPI 标准质量渲染...');
+        canvas = await generateCanvasFromDom(captureEl, bgHex, 1, editorHtml);
       }
 
-      pdf.save(`fluxmark-${Date.now()}.pdf`);
-      showToast('📄 PDF 文档导出成功！');
+      if (!canvas || canvas.width === 0 || canvas.height === 0) {
+        throw new Error('Canvas render failed on all attempts');
+      }
+
+      setPdfExportProgress(50);
+      setPdfExportStatusText('画布绘制成功，正在按 A4 规格精准排版切分...');
+
+      const mmToPx = canvas.width / 210;
+      const pageCanvasHeight = Math.round(297 * mmToPx);
+
+      const marginTopPx = Math.round(15 * mmToPx);
+      const marginBottomPx = Math.round(15 * mmToPx);
+      const contentAreaPx = pageCanvasHeight - marginTopPx - marginBottomPx;
+
+      const sliceHeightPx = contentAreaPx;
+      const totalPages = Math.ceil(canvas.height / sliceHeightPx) || 1;
+
+      let targetPageNumbers: number[] = Array.from({ length: totalPages }, (_, i) => i + 1);
+      if (exportOpts.pageRangeType === 'custom') {
+        targetPageNumbers = parsePageRange(exportOpts.customPages, totalPages);
+      }
+
+      const totalExportCount = targetPageNumbers.length;
+      const pdf = new jsPDF('p', 'mm', 'a4');
+
+      for (let outputIdx = 0; outputIdx < totalExportCount; outputIdx++) {
+        const pageNum1Based = targetPageNumbers[outputIdx];
+        const progressVal = Math.round(50 + ((outputIdx + 1) / totalExportCount) * 45);
+        setPdfExportProgress(progressVal);
+        setPdfExportStatusText(`正在合成第 ${outputIdx + 1} / ${totalExportCount} 页 (原文档第 ${pageNum1Based} 页)...`);
+
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        if (outputIdx > 0) {
+          pdf.addPage();
+        }
+
+        const pageIdx = pageNum1Based - 1;
+
+        const pageCanvas = document.createElement('canvas');
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = pageCanvasHeight;
+        const ctx = pageCanvas.getContext('2d');
+
+        if (ctx) {
+          ctx.fillStyle = bgHex;
+          ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+
+          const startY = pageIdx * sliceHeightPx;
+          const sliceH = Math.min(sliceHeightPx, canvas.height - startY);
+
+          ctx.drawImage(
+            canvas,
+            0, startY, canvas.width, sliceH,
+            0, marginTopPx, canvas.width, sliceH
+          );
+        }
+
+        const pageDataUrl = pageCanvas.toDataURL('image/png');
+        pdf.addImage(pageDataUrl, 'PNG', 0, 0, 210, 297);
+      }
+
+      setPdfExportProgress(95);
+      setPdfExportStatusText('正在打包压缩 PDF 文档...');
+
+      const cleanName = (docName || 'document').replace(/[\\/:*?"<>|]/g, '_');
+      pdf.save(`${cleanName}.pdf`);
+
+      setPdfExportProgress(100);
+      setPdfExportStatusText('导出完成！');
+      showToast('📄 高品质 PDF 文档导出成功！');
+
+      setTimeout(() => {
+        setIsPdfModalOpen(false);
+        setIsPdfModalGenerating(false);
+      }, 500);
     } catch (err) {
       console.error('PDF export failed', err);
-      showToast('PDF 导出生成失败，请稍后重试');
+      showToast('❌ PDF 导出生成失败，请稍后重试');
+      setIsPdfModalGenerating(false);
     } finally {
       captureEl.style.transform = originalTransform;
       captureEl.style.zoom = originalZoom;
-      captureEl.style.width = originalWidth;
-      captureEl.style.maxWidth = originalMaxWidth;
       captureEl.style.height = originalHeight;
       captureEl.style.overflow = originalOverflow;
     }
   };
 
-  const exportImage = async () => {
+  const executeExportImage = async (imageOpts: ImageExportOptions) => {
     if (!editor) return;
     const editorEl = editor.view.dom;
     const captureEl = (editorEl.closest('.max-w-4xl') || editorEl.parentElement) as HTMLElement;
     if (!captureEl) return;
 
+    setIsPdfModalGenerating(true);
+    setPdfExportProgress(10);
+    setPdfExportStatusText('正在初始化长图像素捕获...');
+
     const originalTransform = captureEl.style.transform;
     const originalZoom = captureEl.style.zoom;
     const originalHeight = captureEl.style.height;
     const originalOverflow = captureEl.style.overflow;
+    const originalPadding = captureEl.style.padding;
+
+    let bgHex = '#ffffff';
+    if (imageOpts.bgColorType === 'theme') {
+      const themeObj = THEME_OPTIONS.find(t => t.id === theme);
+      bgHex = themeObj?.bgHex || '#ffffff';
+    } else if (imageOpts.bgColorType === 'dark') {
+      bgHex = '#0b0f19';
+    } else {
+      bgHex = '#ffffff';
+    }
+
+    const padValue = imageOpts.padding === 'tight' ? '16px' : imageOpts.padding === 'relaxed' ? '48px' : '32px';
 
     try {
       showToast('⏳ 正在生成长图，请稍候...');
-      
+
       captureEl.style.transform = 'none';
       captureEl.style.zoom = '1';
       captureEl.style.height = 'auto';
       captureEl.style.overflow = 'visible';
+      captureEl.style.padding = padValue;
 
-      const canvas = await toCanvas(captureEl, { 
-        pixelRatio: 3,
-        backgroundColor: theme === 'dark' ? '#0f172a' : '#ffffff',
-        filter: (node) => {
-          if (node instanceof HTMLElement) {
-            if (node.classList.contains('fixed') || node.classList.contains('absolute') || node.tagName === 'BUTTON') {
-              return false;
-            }
-          }
-          return true;
-        },
-        style: {
-          padding: '40px',
+      setPdfExportProgress(35);
+      setPdfExportStatusText(`正在以 ${imageOpts.pixelRatio}x 像素密度渲染全景 DOM...`);
+
+      const editorHtml = editor ? editor.getHTML() : undefined;
+      let canvas: HTMLCanvasElement | null = null;
+      try {
+        canvas = await generateCanvasFromDom(captureEl, bgHex, imageOpts.pixelRatio, editorHtml);
+      } catch (errRender) {
+        console.warn('High quality image render failed, trying standard quality...', errRender);
+        setPdfExportProgress(50);
+        setPdfExportStatusText('正在降级渲染 1x 长图...');
+        canvas = await generateCanvasFromDom(captureEl, bgHex, 1, editorHtml);
+      }
+
+      if (!canvas || canvas.width === 0 || canvas.height === 0) {
+        throw new Error('Canvas render returned empty');
+      }
+
+      setPdfExportProgress(85);
+      setPdfExportStatusText('正在编码封装 PNG 图片文件...');
+
+      const cleanName = (docName || 'document').replace(/[\\/:*?"<>|]/g, '_');
+      const filename = `${cleanName}-${Date.now()}.png`;
+
+      canvas.toBlob((blob) => {
+        if (blob) {
+          saveAs(blob, filename);
+          showToast('🖼️ 文档长图导出成功！');
+        } else {
+          const imgData = canvas!.toDataURL('image/png');
+          const link = document.createElement('a');
+          link.download = filename;
+          link.href = imgData;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          showToast('🖼️ 文档长图导出成功！');
         }
-      });
 
-      const imgData = canvas.toDataURL('image/png');
-      const filename = `fluxmark-${Date.now()}.png`;
-      
-      // Fallback download method
-      const link = document.createElement('a');
-      link.download = filename;
-      link.href = imgData;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      showToast('🖼️ 文档长图导出成功！');
+        setPdfExportProgress(100);
+        setPdfExportStatusText('导出完成！');
+
+        setTimeout(() => {
+          setIsPdfModalOpen(false);
+          setIsPdfModalGenerating(false);
+        }, 500);
+      }, 'image/png');
     } catch (err) {
       console.error('Image export failed', err);
-      showToast('长图生成导出失败，请稍后重试');
+      showToast('❌ 长图生成导出失败，请稍后重试');
+      setIsPdfModalGenerating(false);
     } finally {
       captureEl.style.transform = originalTransform;
       captureEl.style.zoom = originalZoom;
       captureEl.style.height = originalHeight;
       captureEl.style.overflow = originalOverflow;
+      captureEl.style.padding = originalPadding;
     }
+  };
+
+  const exportPDF = () => {
+    setExportModalTab('pdf');
+    setPdfExportProgress(0);
+    setPdfExportStatusText('');
+    setIsPdfModalOpen(true);
+  };
+
+  const exportImage = () => {
+    setExportModalTab('image');
+    setPdfExportProgress(0);
+    setPdfExportStatusText('');
+    setIsPdfModalOpen(true);
   };
 
   const exportHTML = () => {
@@ -2422,7 +2799,7 @@ export default function App() {
               <ToolbarItem icon={<Upload size={16} />} label="打开" onClick={openAppFile} />
               <ToolbarItem icon={<Save size={16} />} label="保存" onClick={saveFile} />
               <ToolbarItem icon={<FileDown size={16} />} label="另存为..." onClick={saveAsFile} />
-              <ToolbarItem icon={<RefreshCcw size={16} />} label="加载示例模版" onClick={loadSampleDoc} />
+              <ToolbarItem icon={<SparklesIcon size={16} className="text-[var(--accent)]" />} label="精选示例模版..." onClick={() => setShowTemplateModal(true)} />
             </ToolbarGroup>
             
             <ToolbarGroup label="导出">
@@ -2442,49 +2819,62 @@ export default function App() {
                     <span className="font-normal text-[9px] opacity-75">共 {THEME_OPTIONS.length} 款</span>
                   </div>
                   <div className="space-y-1">
-                    {THEME_OPTIONS.map((t) => (
-                      <button
-                        key={t.id}
-                        onClick={() => setTheme(t.id)}
-                        className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between transition-all cursor-pointer group ${
-                          theme === t.id 
-                            ? 'bg-blue-50 text-blue-600 font-bold dark:bg-blue-950/70 dark:text-blue-300' 
-                            : 'text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="p-1 rounded bg-[var(--bg-secondary)] border border-[var(--border)] text-[var(--text-secondary)] group-hover:text-[var(--accent)] shrink-0">
-                            {t.icon}
-                          </span>
-                          <div className="flex flex-col min-w-0">
-                            <span className="font-medium text-xs truncate flex items-center gap-1.5">
-                              {t.name}
-                              {t.id === 'light' && (
-                                <span className="text-[9px] font-normal px-1 py-0.2 rounded bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                                  默认
-                                </span>
-                              )}
+                    {THEME_OPTIONS.map((t) => {
+                      const isActive = theme === t.id;
+                      return (
+                        <button
+                          key={t.id}
+                          onClick={() => setTheme(t.id)}
+                          className={`w-full text-left px-2.5 py-2 rounded-xl text-xs flex items-center justify-between transition-all cursor-pointer group border ${
+                            isActive 
+                              ? 'bg-blue-500/10 border-blue-500/50 text-[var(--text-primary)] font-bold shadow-2xs' 
+                              : 'border-transparent text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] hover:border-[var(--border)]'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span 
+                              className="p-1.5 rounded-lg border text-[var(--text-secondary)] group-hover:text-[var(--accent)] shrink-0 transition-colors shadow-2xs"
+                              style={{ backgroundColor: t.bgHex, borderColor: t.accentHex }}
+                            >
+                              {t.icon}
                             </span>
-                            <span className="text-[9px] text-[var(--text-secondary)] font-normal truncate opacity-80">{t.desc}</span>
+                            <div className="flex flex-col min-w-0">
+                              <div className="font-semibold text-xs truncate flex items-center gap-1.5">
+                                <span>{t.name}</span>
+                                <span 
+                                  className="text-[9px] font-normal px-1.5 py-0.2 rounded-full border opacity-90"
+                                  style={{ 
+                                    backgroundColor: `${t.accentHex}15`, 
+                                    color: t.accentHex, 
+                                    borderColor: `${t.accentHex}40` 
+                                  }}
+                                >
+                                  {t.tag}
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-[var(--text-secondary)] font-normal truncate opacity-80 mt-0.5">{t.desc}</span>
+                            </div>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-1 pl-2 shrink-0">
-                          <span 
-                            className="w-3 h-3 rounded-full border border-black/10 dark:border-white/20 shadow-xs" 
-                            style={{ backgroundColor: t.bgHex }} 
-                            title="背景 Preview"
-                          />
-                          <span 
-                            className="w-3 h-3 rounded-full border border-black/10 dark:border-white/20 shadow-xs" 
-                            style={{ backgroundColor: t.accentHex }} 
-                            title="主色 Preview"
-                          />
-                          {theme === t.id && (
-                            <Check size={13} className="text-[var(--accent)] ml-0.5" />
-                          )}
-                        </div>
-                      </button>
-                    ))}
+                          <div className="flex items-center gap-1.5 pl-2 shrink-0">
+                            <div className="flex items-center -space-x-1">
+                              <span 
+                                className="w-3.5 h-3.5 rounded-full border border-black/20 dark:border-white/30 shadow-xs z-10" 
+                                style={{ backgroundColor: t.bgHex }} 
+                                title="背景 Preview"
+                              />
+                              <span 
+                                className="w-3.5 h-3.5 rounded-full border border-black/20 dark:border-white/30 shadow-xs" 
+                                style={{ backgroundColor: t.accentHex }} 
+                                title="主色 Preview"
+                              />
+                            </div>
+                            {isActive && (
+                              <Check size={14} className="text-[var(--accent)] ml-0.5" strokeWidth={2.5} />
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -3956,12 +4346,12 @@ export default function App() {
                       <button
                         onClick={() => {
                           setShowHelpModal(false);
-                          loadSampleDoc();
+                          setShowTemplateModal(true);
                         }}
                         className="px-3.5 py-2 bg-[var(--accent)] hover:bg-blue-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 shrink-0 transition-all cursor-pointer"
                       >
-                        <RefreshCcw size={14} />
-                        加载 / 重置示例文档
+                        <SparklesIcon size={14} />
+                        浏览精选示例模版库
                       </button>
                     </div>
 
@@ -4179,6 +4569,21 @@ export default function App() {
       {/* Privacy Policy Modal */}
       <PrivacyModal isOpen={showPrivacyModal} onClose={() => setShowPrivacyModal(false)} />
 
+      {/* PDF & Long Image Export Center Modal */}
+      <PDFExportModal
+        isOpen={isPdfModalOpen}
+        initialTab={exportModalTab}
+        onClose={() => setIsPdfModalOpen(false)}
+        onExportPDF={executeExportPDF}
+        onExportImage={executeExportImage}
+        docName={docName}
+        wordCount={editor?.storage.characterCount?.words() || editor?.getText().length || 0}
+        currentThemeName={THEME_OPTIONS.find(t => t.id === theme)?.name || '默认简约'}
+        isGenerating={isPdfModalGenerating}
+        progressPercent={pdfExportProgress}
+        progressStatusText={pdfExportStatusText}
+      />
+
       {/* Support / Sponsorship Modal */}
       <SponsorModal isOpen={showSponsorModal} onClose={() => setShowSponsorModal(false)} showToast={showToast} />
 
@@ -4199,6 +4604,13 @@ export default function App() {
         directoryName={currentDirectoryName}
         onClose={() => setShowNewFileModal(false)}
         onConfirm={handleCreateNewFileInWorkspace}
+      />
+
+      {/* Document Template Selection Modal */}
+      <TemplateModal
+        isOpen={showTemplateModal}
+        onClose={() => setShowTemplateModal(false)}
+        onSelectTemplate={handleSelectTemplate}
       />
 
       {/* Presentation Background & Pattern Modal */}

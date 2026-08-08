@@ -10,52 +10,62 @@
   :root, [data-theme='light'] {
     --bg-primary: #ffffff;
     --bg-secondary: #f8fafc;
-    --text-primary: #1e293b;
+    --text-primary: #0f172a;
     --text-secondary: #64748b;
-    --accent: #1161f3;
+    --accent: #2563eb;
     --border: #e2e8f0;
-    --toolbar-bg: rgba(255, 255, 255, 0.85);
+    --toolbar-bg: rgba(255, 255, 255, 0.88);
+    --code-bg: #f1f5f9;
+    --quote-bg: rgba(241, 245, 249, 0.75);
     --editor-font: "JetBrains Mono", monospace;
   }
 
   [data-theme='dark'] {
-    --bg-primary: #0f172a;
-    --bg-secondary: #1e293b;
-    --text-primary: #f1f5f9;
+    --bg-primary: #0b0f19;
+    --bg-secondary: #161f30;
+    --text-primary: #f8fafc;
     --text-secondary: #94a3b8;
     --accent: #38bdf8;
-    --border: #334155;
-    --toolbar-bg: rgba(15, 23, 42, 0.85);
+    --border: #24334a;
+    --toolbar-bg: rgba(11, 15, 25, 0.88);
+    --code-bg: #060913;
+    --quote-bg: rgba(22, 31, 48, 0.75);
   }
 
   [data-theme='ocean'] {
-    --bg-primary: #0b192c;
-    --bg-secondary: #1e3e62;
-    --text-primary: #f0f8ff;
-    --text-secondary: #93c5fd;
-    --accent: #008dda;
-    --border: #1e293b;
-    --toolbar-bg: rgba(11, 25, 44, 0.85);
+    --bg-primary: #081325;
+    --bg-secondary: #0f2342;
+    --text-primary: #f0f9ff;
+    --text-secondary: #7dd3fc;
+    --accent: #06b6d4;
+    --border: #1a365d;
+    --toolbar-bg: rgba(8, 19, 37, 0.88);
+    --code-bg: #040b17;
+    --quote-bg: rgba(15, 35, 66, 0.75);
   }
 
   [data-theme='warm'] {
-    --bg-primary: #fdfbf7;
-    --bg-secondary: #f4efe6;
-    --text-primary: #3d2c1e;
+    --bg-primary: #faf5eb;
+    --bg-secondary: #f0e6d6;
+    --text-primary: #2d2118;
     --text-secondary: #785e4e;
     --accent: #d97706;
-    --border: #e6decb;
-    --toolbar-bg: rgba(253, 251, 247, 0.85);
+    --border: #e3d6c1;
+    --toolbar-bg: rgba(250, 245, 235, 0.88);
+    --code-bg: #e8dcc8;
+    --quote-bg: rgba(240, 230, 214, 0.75);
   }
 
   [data-theme='mint'] {
-    --bg-primary: #f2fbf7;
-    --bg-secondary: #e1f5eb;
-    --text-primary: #0f4c3a;
-    --text-secondary: #2d7a64;
+    --bg-primary: #f2faf5;
+    --bg-secondary: #e1f3e9;
+    --text-primary: #0a3a2d;
+    --text-secondary: #28705b;
     --accent: #059669;
-    --border: #c2ebd9;
-    --toolbar-bg: rgba(242, 251, 247, 0.85);
+    --border: #bfe8d4;
+    --toolbar-bg: rgba(242, 250, 245, 0.88);
+    --code-bg: #d5eedf;
+    --quote-bg: rgba(225, 243, 233, 0.75);
   }
 
   body {
