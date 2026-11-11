@@ -417,8 +417,8 @@ export default function App() {
     zoomAnchor.current = null;
     if (viewport && anchor && !isPresentation) {
       viewport.scrollTo({
-        left: (viewport.scrollLeft + anchor.x) * workspaceScale / anchor.scale - anchor.x,
-        top: (viewport.scrollTop + anchor.y) * workspaceScale / anchor.scale - anchor.y,
+        left: (viewport.scrollLeft + anchor.x) * Math.max(1, workspaceScale) / anchor.scale - anchor.x,
+        top: (viewport.scrollTop + anchor.y) * Math.max(1, workspaceScale) / anchor.scale - anchor.y,
       });
     }
   }, [workspaceScale, isPresentation]);
@@ -433,7 +433,7 @@ export default function App() {
       const nextScale = Math.min(1.5, Math.max(.75, workspaceScale * factor));
       if (!viewport || nextScale === workspaceScale) return;
       const rect = viewport.getBoundingClientRect();
-      zoomAnchor.current = { x: event.clientX - rect.left, y: event.clientY - rect.top, scale: workspaceScale };
+      zoomAnchor.current = { x: event.clientX - rect.left, y: event.clientY - rect.top, scale: Math.max(1, workspaceScale) };
       setWorkspaceScale(nextScale);
     };
     const reset = (event: KeyboardEvent) => {
@@ -2560,7 +2560,8 @@ useEffect(() => {
     };
   }, [isPresentation, fitSlides, slideEditing, validSlideIndex, activeSlideHtml, slideLayout, slideEditor, markdownSkin]);
 
-  const scale = isPresentation ? 1 : workspaceScale;
+  const scale = isPresentation ? 1 : Math.max(1, workspaceScale);
+  const canvasScale = Math.min(1, workspaceScale);
   return (
     <div ref={workspaceViewport} className="workspace-zoom-viewport">
       <div className="workspace-zoom-frame" style={scale === 1 ? undefined : {width: `${scale * 100}vw`, height: `${scale * 100}dvh`}}>
@@ -2865,7 +2866,7 @@ useEffect(() => {
             <div 
               className="writing-canvas relative mx-auto w-full min-h-full bg-[var(--bg-primary)] group"
               data-markdown-skin={markdownSkin}
-              style={{ zoom: zoom }}
+              style={{ zoom, transform: canvasScale === 1 ? undefined : `scale(${canvasScale})`, transformOrigin: 'top center' }}
               onClick={(e) => {
                 const target = e.target as HTMLElement;
                 const tocLink = target.closest('[data-toc-pos], [data-toc-text]') as HTMLElement | null;
@@ -3140,7 +3141,7 @@ useEffect(() => {
             <span className="text-[var(--border)] hidden sm:inline">|</span>
             <div className="hidden sm:flex items-center gap-1 text-[11px]">
               <span>画布比例:</span>
-              <span className="font-mono font-bold">{Math.round(zoom * 100)}%</span>
+              <span className="font-mono font-bold">{Math.round(zoom * workspaceScale * 100)}%</span>
             </div>
           </div>
 

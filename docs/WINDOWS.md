@@ -12,7 +12,7 @@
 npm ci
 npm run lint
 npm run package:win
-Get-FileHash -Algorithm SHA256 release/FluxMark-Setup-1.1.1-Windows-x64.exe
+Get-FileHash -Algorithm SHA256 release/FluxMark-Setup-1.1.2-Windows-x64.exe
 ```
 
 首次打包需要联网下载 Electron 和打包工具。发布前在 Windows 上验证首次启动、重新启动、快捷方式、Markdown 导入导出和放映。
