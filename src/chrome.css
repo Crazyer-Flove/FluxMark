@@ -18,6 +18,9 @@
 .pdf-export-modal-root>div>div:first-child,.pdf-export-modal-root>div>div:last-child {flex-shrink:0;}
 .flux-shell .fixed [class*='text-slate-400'],.flux-shell .fixed [class*='text-slate-500'] {color:var(--text-secondary);}
 .flux-shell {font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;font-size:13px;}
+.workspace-zoom-viewport {width:100%;height:100dvh;overflow:auto;overscroll-behavior:contain;}
+.workspace-zoom-frame {overflow:clip;}
+.workspace-zoom-frame > .flux-shell {width:100vw;height:100dvh;transform-origin:top left;}
 .chrome-header {height:50px;display:flex;align-items:center;flex-shrink:0;background:var(--bg-secondary);border-bottom:1px solid var(--border);z-index:60;}
 .chrome-brand {flex-shrink:0;display:flex;align-items:center;gap:10px;padding:0 12px;background:var(--bg-secondary);height:100%;}
 .chrome-brand strong {font-size:15px;letter-spacing:-.045em;font-weight:600;}

@@ -62,6 +62,7 @@ if (!app.requestSingleInstanceLock()) {
       ] },
       { label: '编辑', role: 'editMenu' },
     ]));
+    window.setMenuBarVisibility(false);
     await window.loadURL(origin + '/');
   }).catch(error => {
     dialog.showErrorBox('FluxMark 启动失败', error.message);

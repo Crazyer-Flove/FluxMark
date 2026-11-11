@@ -409,6 +409,19 @@ export default function App() {
   
   // Refs
   const containerRef = useRef<HTMLDivElement>(null);
+  const workspaceViewport = useRef<HTMLDivElement>(null);
+  const zoomAnchor = useRef<{ x: number; y: number; scale: number } | null>(null);
+  useLayoutEffect(() => {
+    const viewport = workspaceViewport.current;
+    const anchor = zoomAnchor.current;
+    zoomAnchor.current = null;
+    if (viewport && anchor && !isPresentation) {
+      viewport.scrollTo({
+        left: (viewport.scrollLeft + anchor.x) * workspaceScale / anchor.scale - anchor.x,
+        top: (viewport.scrollTop + anchor.y) * workspaceScale / anchor.scale - anchor.y,
+      });
+    }
+  }, [workspaceScale, isPresentation]);
   useEffect(() => {
     const shell = containerRef.current;
     if (!shell || isPresentation) return;
@@ -416,7 +429,12 @@ export default function App() {
       if (!event.ctrlKey || !event.deltaY || event.defaultPrevented) return;
       event.preventDefault();
       const factor = wheelZoomFactor(event);
-      setWorkspaceScale(scale => Math.min(1.5, Math.max(.75, scale * factor)));
+      const viewport = workspaceViewport.current;
+      const nextScale = Math.min(1.5, Math.max(.75, workspaceScale * factor));
+      if (!viewport || nextScale === workspaceScale) return;
+      const rect = viewport.getBoundingClientRect();
+      zoomAnchor.current = { x: event.clientX - rect.left, y: event.clientY - rect.top, scale: workspaceScale };
+      setWorkspaceScale(nextScale);
     };
     const reset = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.key !== '0') return;
@@ -429,7 +447,7 @@ export default function App() {
       shell.removeEventListener('wheel', wheel);
       window.removeEventListener('keydown', reset);
     };
-  }, [isPresentation]);
+  }, [isPresentation, workspaceScale]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const directoryInputRef = useRef<HTMLInputElement>(null);
   const cropperRef = useRef<Cropper | null>(null);
@@ -2542,9 +2560,12 @@ useEffect(() => {
     };
   }, [isPresentation, fitSlides, slideEditing, validSlideIndex, activeSlideHtml, slideLayout, slideEditor, markdownSkin]);
 
+  const scale = isPresentation ? 1 : workspaceScale;
   return (
+    <div ref={workspaceViewport} className="workspace-zoom-viewport">
+      <div className="workspace-zoom-frame" style={scale === 1 ? undefined : {width: `${scale * 100}vw`, height: `${scale * 100}dvh`}}>
     <div ref={containerRef} className="flux-shell h-screen flex flex-col font-sans relative overflow-hidden select-none bg-[var(--bg-secondary)]"
-      style={isPresentation || workspaceScale === 1 ? undefined : {zoom: workspaceScale, height: `${100 / workspaceScale}dvh`}}>
+      style={scale === 1 ? undefined : {transform: `scale(${scale})`}}>
       {/* --- 顶部工具栏 --- */}
       <WorkspaceChrome settings={settingsOpen} setSettings={setSettingsOpen} name={docName} status={saveState} sidebar={showSidebar} ai={showAIChat} theme={theme} themes={THEME_OPTIONS} font={fontFamily} fonts={FONT_OPTIONS}
         onName={setDocName} onSidebar={()=>setShowSidebar(v=>!v)} onAI={()=>setShowAIChat(v=>!v)} onPresent={()=>setShowPresentationPreview(true)} onTheme={v=>setTheme(v as Theme)} onFont={setFontFamily} onSave={saveFile}
@@ -3822,6 +3843,8 @@ useEffect(() => {
 
       <input type="file" ref={fileInputRef} className="hidden" accept=".md,.markdown,.txt" onChange={handleOpenFile} />
       <input type="file" ref={directoryInputRef} className="hidden" {...({ webkitdirectory: 'true' } as any)} onChange={handleDirectoryOpen} />
+    </div>
+      </div>
     </div>
   );
 }
