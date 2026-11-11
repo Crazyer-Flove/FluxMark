@@ -7,10 +7,27 @@ export const BlockMath = Node.create({
   group: 'block',
   atom: true,
 
+  addStorage() {
+    return { markdown: { serialize(state: any, node: any) {
+      const latex = node.attrs.latex;
+      if (latex && latex.trim() === latex && !latex.includes('$$')) {
+        state.write('$$\n' + latex + '\n$$');
+        state.closeBlock(node);
+      } else {
+        const element = document.createElement('div');
+        element.dataset.type = 'block-math';
+        element.dataset.latex = latex;
+        state.write(element.outerHTML);
+        state.closeBlock(node);
+      }
+    } } };
+  },
+
   addAttributes() {
     return {
       latex: {
         default: '',
+        renderHTML: attributes => ({'data-latex': attributes.latex}),
       },
       displayMode: {
         default: true,
@@ -23,7 +40,7 @@ export const BlockMath = Node.create({
       {
         tag: 'div[data-type="block-math"]',
         getAttrs: (element: HTMLElement) => ({
-          latex: element.getAttribute('data-latex') || '',
+          latex: element.getAttribute('data-latex') ?? element.getAttribute('latex') ?? '',
         }),
       },
       {

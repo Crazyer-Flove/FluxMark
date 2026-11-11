@@ -8,10 +8,27 @@ export const InlineMath = Node.create({
   inline: true,
   atom: true,
 
+  addStorage() {
+    return { markdown: { serialize(state: any, node: any) {
+      const latex = node.attrs.latex;
+      if (latex && latex.trim() === latex && !/[$\n]/.test(latex)) {
+        state.write('$' + latex + '$');
+        
+      } else {
+        const element = document.createElement('span');
+        element.dataset.type = 'inline-math';
+        element.dataset.latex = latex;
+        state.write(element.outerHTML);
+        
+      }
+    } } };
+  },
+
   addAttributes() {
     return {
       latex: {
         default: '',
+        renderHTML: attributes => ({'data-latex': attributes.latex}),
       },
       displayMode: {
         default: false,
@@ -24,7 +41,7 @@ export const InlineMath = Node.create({
       {
         tag: 'span[data-type="inline-math"]',
         getAttrs: (element: HTMLElement) => ({
-          latex: element.getAttribute('data-latex') || '',
+          latex: element.getAttribute('data-latex') ?? element.getAttribute('latex') ?? '',
         }),
       },
       {

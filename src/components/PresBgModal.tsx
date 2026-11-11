@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 
 export type PatternType = 'none' | 'dots' | 'grid' | 'stripes' | 'mesh' | 'waves';
 export type GradientType = 'linear' | 'radial' | 'solid';
-export type SlideTransitionType = 'slide-x' | 'fade' | 'slide-y' | 'zoom' | 'flip';
+export type SlideTransitionType = 'none' | 'slide-x' | 'fade' | 'slide-y' | 'zoom' | 'flip';
 
 export interface PresBgConfig {
   presetId: string;
@@ -23,7 +23,7 @@ export interface PresBgConfig {
 }
 
 export const DEFAULT_PRES_BG_CONFIG: PresBgConfig = {
-  presetId: 'slate',
+  presetId: 'theme',
   gradientType: 'linear',
   colorStart: '#020617',
   colorMiddle: '#0f172a',
@@ -32,7 +32,7 @@ export const DEFAULT_PRES_BG_CONFIG: PresBgConfig = {
   pattern: 'none',
   patternOpacity: 0.25,
   cardStyle: 'glass',
-  transitionType: 'slide-x',
+  transitionType: 'fade',
 };
 
 export interface PresetOption {
@@ -228,6 +228,7 @@ export const PRES_BG_PRESETS: PresetOption[] = [
 
 // Helper to compute background style
 export function getPresBgStyle(config: PresBgConfig): React.CSSProperties {
+  if (config.presetId === 'theme') return { backgroundColor: 'var(--bg-secondary)' };
   if (config.gradientType === 'solid') {
     return { backgroundColor: config.colorStart };
   }
@@ -355,13 +356,13 @@ export const PresBgModal: React.FC<PresBgModalProps> = ({
                     Pro
                   </span>
                 </h3>
-                <p className="text-xs text-slate-400">选择预设高级暗调渐变、科技纹理或自主定制放映底色</p>
+                <p className="text-xs text-[var(--text-secondary)]">选择预设高级暗调渐变、科技纹理或自主定制放映底色</p>
               </div>
             </div>
 
             <button
               onClick={onClose}
-              className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              className="p-2 rounded-xl text-[var(--text-secondary)] hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
             >
               <X size={20} />
             </button>
@@ -398,7 +399,7 @@ export const PresBgModal: React.FC<PresBgModalProps> = ({
                   className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
                     activeTab === 'presets' 
                       ? 'bg-blue-600 text-white shadow-md font-semibold' 
-                      : 'text-slate-400 hover:text-slate-200'
+                      : 'text-[var(--text-secondary)] hover:text-slate-200'
                   }`}
                 >
                   <Sparkles size={14} />
@@ -410,7 +411,7 @@ export const PresBgModal: React.FC<PresBgModalProps> = ({
                   className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
                     activeTab === 'custom' 
                       ? 'bg-blue-600 text-white shadow-md font-semibold' 
-                      : 'text-slate-400 hover:text-slate-200'
+                      : 'text-[var(--text-secondary)] hover:text-slate-200'
                   }`}
                 >
                   <Sliders size={14} />
@@ -420,7 +421,7 @@ export const PresBgModal: React.FC<PresBgModalProps> = ({
 
               <button
                 onClick={onReset}
-                className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-amber-400 transition-colors px-3 py-1.5 rounded-xl hover:bg-slate-800/60 border border-transparent hover:border-slate-700 cursor-pointer"
+                className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] hover:text-amber-400 transition-colors px-3 py-1.5 rounded-xl hover:bg-slate-800/60 border border-transparent hover:border-slate-700 cursor-pointer"
                 title="恢复默认 Slate 质感背景"
               >
                 <RotateCcw size={13} />
@@ -433,7 +434,9 @@ export const PresBgModal: React.FC<PresBgModalProps> = ({
           <div className="p-6 overflow-y-auto flex-1 no-scrollbar space-y-6">
             {activeTab === 'presets' ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                {PRES_BG_PRESETS.map((preset) => {
+                <button type="button" className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-4 text-left"
+                  onClick={()=>onChange({...DEFAULT_PRES_BG_CONFIG, presetId:'theme', pattern:'none', transitionType:'fade'})}>跟随界面主题</button>
+                {PRES_BG_PRESETS.filter(preset=>['pure-dark','soft-paper'].includes(preset.id)).map((preset) => {
                   const isSelected = config.presetId === preset.id;
                   return (
                     <button
@@ -473,7 +476,7 @@ export const PresBgModal: React.FC<PresBgModalProps> = ({
                         </span>
                       </div>
 
-                      <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed">
+                      <p className="text-[11px] text-[var(--text-secondary)] line-clamp-2 leading-relaxed">
                         {preset.desc}
                       </p>
                     </button>
@@ -491,7 +494,7 @@ export const PresBgModal: React.FC<PresBgModalProps> = ({
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-400 mb-1.5">渐变模式</label>
+                      <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1.5">渐变模式</label>
                       <select
                         value={config.gradientType}
                         onChange={(e) => onChange({ ...config, presetId: 'custom', gradientType: e.target.value as GradientType })}
@@ -504,7 +507,7 @@ export const PresBgModal: React.FC<PresBgModalProps> = ({
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-400 mb-1.5">起始颜色 (Start Color)</label>
+                      <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1.5">起始颜色 (Start Color)</label>
                       <div className="flex items-center gap-2">
                         <input
                           type="color"
@@ -522,7 +525,7 @@ export const PresBgModal: React.FC<PresBgModalProps> = ({
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-400 mb-1.5">结束颜色 (End Color)</label>
+                      <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1.5">结束颜色 (End Color)</label>
                       <div className="flex items-center gap-2">
                         <input
                           type="color"
@@ -542,7 +545,7 @@ export const PresBgModal: React.FC<PresBgModalProps> = ({
 
                   {config.gradientType === 'linear' && (
                     <div>
-                      <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                      <div className="flex items-center justify-between text-[11px] text-[var(--text-secondary)] mb-1">
                         <span>渐变角度 ({config.gradientAngle}°)</span>
                         <Compass size={13} className="text-blue-400" />
                       </div>
@@ -580,7 +583,7 @@ export const PresBgModal: React.FC<PresBgModalProps> = ({
                         className={`px-3 py-2 rounded-xl text-xs font-medium border transition-all cursor-pointer flex items-center justify-between ${
                           config.pattern === p.id 
                             ? 'border-blue-500 bg-blue-500/20 text-white' 
-                            : 'border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200'
+                            : 'border-slate-800 bg-slate-900 text-[var(--text-secondary)] hover:text-slate-200'
                         }`}
                       >
                         <span>{p.label}</span>
@@ -591,7 +594,7 @@ export const PresBgModal: React.FC<PresBgModalProps> = ({
 
                   {config.pattern !== 'none' && (
                     <div>
-                      <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                      <div className="flex items-center justify-between text-[11px] text-[var(--text-secondary)] mb-1">
                         <span>纹理透明度 ({Math.round(config.patternOpacity * 100)}%)</span>
                         <Layers size={13} className="text-indigo-400" />
                       </div>
@@ -617,7 +620,7 @@ export const PresBgModal: React.FC<PresBgModalProps> = ({
 
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
                     {[
-                      { id: 'slide-x', label: '横向滑动', desc: '平滑左右推进', icon: <MoveRight size={14} /> },
+                      { id: 'none', label: '无动画', desc: '立即切页', icon: <MoveRight size={14} /> },
                       { id: 'fade', label: '柔和淡入', desc: '经典渐隐渐现', icon: <Sparkles size={14} /> },
                       { id: 'slide-y', label: '纵向推移', desc: '上下无缝滑动', icon: <MoveVertical size={14} /> },
                       { id: 'zoom', label: '3D 缩放', desc: '立体层级展演', icon: <Maximize2 size={14} /> },
@@ -629,14 +632,14 @@ export const PresBgModal: React.FC<PresBgModalProps> = ({
                         className={`p-3 rounded-xl border transition-all cursor-pointer flex flex-col items-center gap-1.5 text-center ${
                           (config.transitionType || 'slide-x') === t.id 
                             ? 'border-amber-500/80 bg-amber-500/15 text-amber-200 shadow-md font-semibold' 
-                            : 'border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                            : 'border-slate-800 bg-slate-900 text-[var(--text-secondary)] hover:text-slate-200 hover:border-slate-700'
                         }`}
                       >
                         <div className="p-1.5 rounded-lg bg-slate-800/80 border border-slate-700">
                           {t.icon}
                         </div>
                         <span className="text-xs font-bold">{t.label}</span>
-                        <span className="text-[10px] text-slate-400 scale-90">{t.desc}</span>
+                        <span className="text-[10px] text-[var(--text-secondary)] scale-90">{t.desc}</span>
                       </button>
                     ))}
                   </div>
@@ -647,7 +650,7 @@ export const PresBgModal: React.FC<PresBgModalProps> = ({
 
           {/* Footer Action Bar */}
           <div className="px-6 py-4 border-t border-slate-800 bg-slate-900/90 flex items-center justify-between shrink-0">
-            <span className="text-xs text-slate-400">
+            <span className="text-xs text-[var(--text-secondary)]">
               更改将实时同步并自动保存至本地放映设置
             </span>
 

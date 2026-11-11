@@ -1,20 +1,30 @@
-import React, { useState, useEffect, useRef, useCallback, createContext, useContext } from 'react';
+import {getPdfPages} from './utils/pdfPages';
+import {PresentationPreview} from './components/PresentationPreview';
+import {cleanDocumentHtml, parseSafeEditorContent, parseSafeEditorSlice} from './lib/editorContent';
+import {getPresentationLayout, splitPresentationSlides} from './utils/presentationLayout';
+import {enablePresentationPinch} from './utils/presentationPinch';
+import {withExportBrand} from './utils/exportBrand';
+import {WorkspaceChrome} from './components/WorkspaceChrome';
+import {ResourceTree} from './components/ResourceTree';
+import { KnowledgeGraph, type WikiEdge } from './components/KnowledgeGraph';
+import { resourceNotes, wikiMatches, wikiTargets, type WikiNote } from './utils/wikiGraph';
+import { WikiLink } from './extensions/WikiLink';
+import {PresentationControls} from './components/PresentationControls';
+import {WorkspaceTools, useDrafts} from './components/WorkspaceTools';
+import {readWorkingDraft, saveEmergencyDraft, saveWorkingDraft, storeDraft, type Draft} from './utils/drafts';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, createContext, useContext } from 'react';
 import { 
   FileText, Save, Download, Image as ImageIcon, 
   Monitor, Layout, Sun, Moon, Droplets, 
   ChevronLeft, ChevronRight, Maximize2, ZoomIn, ZoomOut, PanelLeftClose, PanelLeft,
-  Folder, FilePlus, ChevronDown, Superscript as SuperscriptIcon, Subscript as SubscriptIcon,
+  Folder, ChevronDown, Superscript as SuperscriptIcon, Subscript as SubscriptIcon,
   Type, Palette, AlignCenter, AlignLeft, Trash2, Printer, MousePointer2, Pencil, Eraser, Timer, RefreshCcw, Target,
   FileCode, Share2, HelpCircle, FileDown, Upload, Bold, Italic, List, ListTodo, ListTree, Heading1, Heading2, Quote, Highlighter, Video as VideoIcon,
-  Undo, Redo, Wand2, Zap, Search, Eye, FolderOpen,
+  Undo, Redo, Wand2, Zap, Search, Network, Link2, Files, Settings2,
   AlertCircle, Check, Plus, BookOpen, Keyboard, UserCheck, Table as TableIcon, Rows, Columns
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { toCanvas } from 'html-to-image';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
 import { saveAs } from 'file-saver';
-import * as docx from 'docx';
 import Cropper from 'cropperjs';
 import 'cropperjs/dist/cropper.css';
 import katex from 'katex';
@@ -24,6 +34,7 @@ import 'katex/dist/katex.min.css';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from 'tiptap-markdown';
+import { MarkdownSyntax, MarkdownText } from './extensions/MarkdownSyntax';
 import Placeholder from '@tiptap/extension-placeholder';
 import CharacterCount from '@tiptap/extension-character-count';
 import Image from 'tiptap-extension-resize-image';
@@ -49,7 +60,6 @@ import { HeadingSuggestion } from './extensions/HeadingSuggestion';
 import { EmojiSuggestion } from './extensions/EmojiSuggestion';
 import { CustomFormattingInputRules } from './extensions/CustomFormattingInputRules';
 import { AIChat } from './components/AIChat';
-import { DocumentOutlineStats } from './components/DocumentOutlineStats';
 import { HighlightPopover } from './components/HighlightPopover';
 import { StudentPickerModal } from './components/StudentPickerModal';
 import { ImageCropperModal } from './components/ImageCropperModal';
@@ -68,8 +78,8 @@ import { Sparkles as SparklesIcon, ShieldCheck as ShieldCheckIcon, Heart as Hear
 const lowlight = createLowlight(common);
 
 // --- Types ---
-type Theme = 'light' | 'dark' | 'ocean' | 'warm' | 'mint';
-type SidebarTab = 'outline' | 'resources';
+type Theme = 'light' | 'dark' | 'warm' | 'sky';
+type SidebarTab = 'outline' | 'resources' | 'backlinks';
 
 interface ThemeOption {
   id: Theme;
@@ -83,56 +93,10 @@ interface ThemeOption {
 }
 
 const THEME_OPTIONS: ThemeOption[] = [
-  {
-    id: 'light',
-    name: '默认简约',
-    tag: '经典优雅',
-    desc: '高对比度清爽亮白，排版层次清晰',
-    icon: <Sun size={16} />,
-    bgHex: '#ffffff',
-    accentHex: '#2563eb',
-    cardGradient: 'from-blue-500 to-indigo-600',
-  },
-  {
-    id: 'dark',
-    name: '暗夜极客',
-    tag: '沉浸极客',
-    desc: '深邃蓝黑电光天蓝，夜间专注不刺眼',
-    icon: <Moon size={16} />,
-    bgHex: '#0b0f19',
-    accentHex: '#38bdf8',
-    cardGradient: 'from-slate-800 to-sky-600',
-  },
-  {
-    id: 'ocean',
-    name: '深海幽蓝',
-    tag: '深海沉静',
-    desc: '浩瀚蔚蓝与海青色，舒缓沉静思考',
-    icon: <Droplets size={16} />,
-    bgHex: '#081325',
-    accentHex: '#06b6d4',
-    cardGradient: 'from-cyan-700 to-blue-900',
-  },
-  {
-    id: 'warm',
-    name: '暖阳复古',
-    tag: '温润护眼',
-    desc: '典雅羊皮纸暖棕调，长时间阅读舒适',
-    icon: <BookOpen size={16} />,
-    bgHex: '#faf5eb',
-    accentHex: '#d97706',
-    cardGradient: 'from-amber-600 to-orange-700',
-  },
-  {
-    id: 'mint',
-    name: '薄荷清新',
-    tag: '自然清新',
-    desc: '舒缓森林翡翠绿，缓解视疲劳宜人',
-    icon: <SparklesIcon size={16} />,
-    bgHex: '#f2faf5',
-    accentHex: '#059669',
-    cardGradient: 'from-emerald-600 to-teal-700',
-  },
+  { id: 'light', name: '白', tag: '明亮', desc: '纯白画布，清晰专注', icon: <Sun size={16} />, bgHex: '#ffffff', accentHex: '#292929', cardGradient: 'from-neutral-100 to-neutral-200' },
+  { id: 'dark', name: '黑', tag: '深色', desc: '炭黑界面，沉浸书写', icon: <Moon size={16} />, bgHex: '#202020', accentHex: '#e8e8e8', cardGradient: 'from-neutral-700 to-neutral-800' },
+  { id: 'warm', name: '米黄', tag: '温暖', desc: '温润纸色，安静阅读', icon: <BookOpen size={16} />, bgHex: '#faf7ef', accentHex: '#665743', cardGradient: 'from-stone-100 to-stone-200' },
+  { id: 'sky', name: '天蓝', tag: '清透', desc: '浅蓝底色，轻盈舒展', icon: <Droplets size={16} />, bgHex: '#f3f9fd', accentHex: '#315d7a', cardGradient: 'from-sky-50 to-sky-100' },
 ];
 
 export interface FontOption {
@@ -143,6 +107,15 @@ export interface FontOption {
   value: string;
   sample: string;
 }
+
+const MARKDOWN_SKINS = [
+  { id: 'studio', name: '青瓷', description: '瓷白与松石绿 · 疏朗留白、釉色标题线与轻量表格。' },
+  { id: 'editorial', name: '绯页', description: '灰玫瑰纸面、居中刊头和宋体段落。' },
+  { id: 'technical', name: '星轨', description: '雾蓝底色、等宽标题和淡线网格。' },
+  { id: 'notebook', name: '柚木', description: '燕麦纸与赭金 · 横线纸、书脊细线与便签引用。' },
+  { id: 'compact', name: '棱镜', description: '冷紫与靛蓝 · 色带标题、紧凑段落与分区表格。' },
+  { id: 'mac', name: '曜银', description: 'macOS 风格的银灰纸面、雾蓝光晕和玻璃质感。' },
+] as const;
 
 export const FONT_OPTIONS: FontOption[] = [
   {
@@ -250,58 +223,61 @@ const PRESET_COLORS = [
   { name: '青绿', value: '#14b8a6' },
 ];
 
-// --- Utils ---
-const transformMarkdownToMathHTML = (markdown: string) => {
-  // Store code blocks to avoid replacing content inside them
-  const codes: string[] = [];
-  let temp = markdown.replace(/```[\s\S]*?```/g, (match) => {
-    codes.push(match);
-    return `__CODE_BLOCK_${codes.length - 1}__`;
-  });
-  temp = temp.replace(/`[^`]+`/g, (match) => {
-    codes.push(match);
-    return `__CODE_INLINE_${codes.length - 1}__`;
-  });
-
-  // Now replace math delimiters with our recognized data-type tags
-  temp = temp
-    .replace(/\$\$([\s\S]+?)\$\$/g, (match, latex) => {
-      // Basic escaping check for HTML
-      const escapedLatex = latex.replace(/"/g, '&quot;');
-      return `<div data-type="block-math" data-latex="${escapedLatex}"></div>`;
-    })
-    .replace(/(?<!\$)\$([^\$]+?)\$(?!\$)/g, (match, latex) => {
-      // Avoid matching price tags like $100 or standalone $
-      if (/^\s|\s$/.test(latex) || latex.length > 200) return match;
-      const escapedLatex = latex.replace(/"/g, '&quot;');
-      return `<span data-type="inline-math" data-latex="${escapedLatex}"></span>`;
-    });
-
-  // Restore codes
-  temp = temp.replace(/__CODE_BLOCK_(\d+)__/g, (_, i) => codes[Number(i)]);
-  temp = temp.replace(/__CODE_INLINE_(\d+)__/g, (_, i) => codes[Number(i)]);
-
-  // Inject lazy loading & async decoding into raw HTML img tags
-  temp = temp.replace(/<img\s+(?![^>]*\bloading=)([^>]+)>/gi, '<img loading="lazy" decoding="async" $1>');
-  
-  return temp;
-};
-
 // --- App Component ---
 export default function App() {
-  const [theme, setTheme] = useState<Theme>('light');
+  const [theme, setTheme] = useState<Theme>(() => {
+    try {
+      const saved = localStorage.getItem('fluxmark_theme');
+      if (saved === 'ocean') return 'sky';
+      if (saved === 'mint') return 'light';
+      return THEME_OPTIONS.some(t => t.id === saved) ? saved as Theme : 'light';
+    } catch { return 'light'; }
+  });
   const [fontFamily, setFontFamily] = useState<string>('default');
+  const [markdownSkin, setMarkdownSkin] = useState(() => {
+    try {
+      const saved = localStorage.getItem('fluxmark_markdown_skin');
+      return MARKDOWN_SKINS.find(skin => skin.id === saved)?.id ?? 'studio';
+    } catch { return 'studio'; }
+  });
+  function changeMarkdownSkin(id: string) {
+    const skin = MARKDOWN_SKINS.find(option => option.id === id);
+    if (!skin) return;
+    setMarkdownSkin(skin.id);
+    try { localStorage.setItem('fluxmark_markdown_skin', skin.id); } catch { /* Session preference remains active. */ }
+  }
   const [zoom, setZoom] = useState<number>(1);
+  const [showPresentationPreview, setShowPresentationPreview] = useState(false);
+  const [fitSlides, setFitSlides] = useState(false);
+  const [slideOverflow, setSlideOverflow] = useState(false);
+  const releaseSlideViewport = useRef<(() => void) | undefined>(undefined);
+  const slideViewport = useRef<HTMLDivElement | null>(null);
+  const [slideEditing, setSlideEditing] = useState(false);
+  const [saveState, setSaveState] = useState('浏览器草稿');
+  const lastSnapshot = useRef(0);
+  const documentId = useRef<string>(crypto.randomUUID());
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const pendingDraft = useRef<Parameters<typeof saveWorkingDraft>[0] | null>(null);
+  const uncommittedDraft = useRef<Parameters<typeof saveWorkingDraft>[0] | null>(null);
+  const documentNameRef = useRef('当前文档.md');
+  const annotationPages = useRef<Record<number, string>>({});
   const [isPresentation, setIsPresentation] = useState<boolean>(false);
-  const [showSidebar, setShowSidebar] = useState<boolean>(true);
-  const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>('outline');
+  const [showSidebar, setShowSidebar] = useState<boolean>(() => window.innerWidth > 640);
+  const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>('resources');
+  const [showGraph, setShowGraph] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [currentWikiTargets, setCurrentWikiTargets] = useState<string[]>([]);
+  const [diskWikiTargets, setDiskWikiTargets] = useState<Record<string, string[]>>({});
+  const [indexingWiki, setIndexingWiki] = useState(false);
+  const wikiDrafts = useDrafts();
+  const resourceDocumentIds = useRef(new Map<string, string>());
   const [resources, setResources] = useState<ResourceItem[]>([]);
   const [currentDirectoryHandle, setCurrentDirectoryHandle] = useState<any | null>(null);
   const [currentDirectoryName, setCurrentDirectoryName] = useState<string | null>(null);
   const [showNewFileModal, setShowNewFileModal] = useState<boolean>(false);
   const [previewImageInfo, setPreviewImageInfo] = useState<PreviewImageInfo | null>(null);
-  const [resourceFilter, setResourceFilter] = useState<'all' | 'file' | 'image'>('all');
-  const [resourceSearch, setResourceSearch] = useState<string>('');
+  const [activeResourceId, setActiveResourceId] = useState<string | null>(null);
+  const [resourceTreeVersion, setResourceTreeVersion] = useState(0);
   const [outline, setOutline] = useState<{ id: string, text: string, level: number, pos?: number }[]>([]);
   const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null);
   const [collapsedHeadings, setCollapsedHeadings] = useState<Record<string, boolean>>({});
@@ -365,6 +341,26 @@ export default function App() {
   const [showPresBgModal, setShowPresBgModal] = useState<boolean>(false);
 
   // Custom UI notification and dialog states
+  function flushWorkingDraft() {
+    const draft = pendingDraft.current;
+    if (!draft) return;
+    pendingDraft.current = null;
+    void saveWorkingDraft(draft).then(() => {
+      if (uncommittedDraft.current === draft) uncommittedDraft.current = null;
+      if (!pendingDraft.current && documentId.current === draft.documentId) {
+        setSaveState(current => current === '正在缓存草稿…' ? '草稿已缓存 · 文件待保存' : current);
+      }
+    }).catch(() => setSaveState('缓存失败，请导出备份'));
+  }
+  function switchDocument(name: string, id: string = crypto.randomUUID()) {
+    clearTimeout(draftTimer.current);
+    flushWorkingDraft();
+    documentId.current = id;
+    documentNameRef.current = name;
+    lastSnapshot.current = 0;
+    setDocName(name);
+    setActiveResourceId(null);
+  }
   const [docName, setDocName] = useState<string>('当前文档.md');
   const [currentFileHandle, setCurrentFileHandle] = useState<any | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -426,9 +422,13 @@ export default function App() {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
+        text: false,
         codeBlock: false,
         blockquote: false,
       }),
+      MarkdownSyntax,
+      MarkdownText,
+      WikiLink,
       Markdown.configure({
         linkify: true,
         breaks: true,
@@ -480,13 +480,15 @@ export default function App() {
       TableCell,
     ],
     content: (() => {
-      const saved = localStorage.getItem(FLUXMARK_STORAGE_KEY);
+      let saved: string|null = null;
+      try { saved=localStorage.getItem(FLUXMARK_STORAGE_KEY); } catch {} 
       if (saved !== null) {
-        return saved;
+        return cleanDocumentHtml(saved);
       }
-      return transformMarkdownToMathHTML(initialMarkdown);
+      return initialMarkdown;
     })(),
     editorProps: {
+      transformPastedHTML: cleanDocumentHtml,
       attributes: {
         class: 'prose-custom w-full outline-none min-h-[600px] border-none focus:ring-0',
       },
@@ -518,12 +520,24 @@ export default function App() {
       },
     },
     onUpdate: ({ editor }) => {
-      // Auto-save content to localStorage
-      const html = editor.getHTML();
-      localStorage.setItem(FLUXMARK_STORAGE_KEY, html);
+      const draft = { documentId: documentId.current, name: documentNameRef.current, html: editor.getHTML(), time: Date.now() };
+      pendingDraft.current = draft;
+      uncommittedDraft.current = draft;
+      clearTimeout(draftTimer.current);
+      setSaveState('正在缓存草稿…');
+      draftTimer.current = setTimeout(flushWorkingDraft, 400);
+      if (Date.now() - lastSnapshot.current > 60000) {
+        lastSnapshot.current = Date.now();
+        void storeDraft(draft.documentId, draft.name, draft.html).catch(() => setSaveState('版本备份失败，请导出副本'));
+      }
 
       // Update outline in microtask to avoid flushSync during render/lifecycle
       queueMicrotask(() => {
+        const targets: string[] = [];
+        editor.state.doc.descendants(node => {
+          if (node.type.name === 'wikiLink' && node.attrs.target && !targets.includes(node.attrs.target)) targets.push(node.attrs.target);
+        });
+        setCurrentWikiTargets(previous => previous.length === targets.length && previous.every((value, index) => value === targets[index]) ? previous : targets);
         const headings: { id: string, text: string, level: number, pos: number }[] = [];
         editor.state.doc.descendants((node, pos) => {
           if (node.type.name === 'heading') {
@@ -542,13 +556,46 @@ export default function App() {
 
   const isUpdatingFromSlideRef = useRef(false);
 
+  useEffect(() => {
+    if (!editor) return;
+    let active = true;
+    const initial = editor.getHTML();
+    const initialId = documentId.current;
+    void readWorkingDraft().then(draft => {
+      if (!active || !draft || initialId !== documentId.current || editor.getHTML() !== initial) return;
+      switchDocument(draft.name, draft.documentId);
+      lastSnapshot.current = Date.now();
+      editor.commands.setContent(parseSafeEditorContent(editor, draft.html));
+    }).catch(() => { if (active) setSaveState('浏览器草稿暂不可用'); });
+    const flushBeforeLeaving = () => {
+      if (uncommittedDraft.current) saveEmergencyDraft(uncommittedDraft.current);
+      flushWorkingDraft();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushBeforeLeaving();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pagehide', flushBeforeLeaving);
+    return () => {
+      active = false;
+      clearTimeout(draftTimer.current);
+      flushWorkingDraft();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pagehide', flushBeforeLeaving);
+    };
+  }, [editor]);
+
   // Tiptap Slide Editor for Full-Screen Presentation Mode Editing
   const slideEditor = useEditor({
     extensions: [
       StarterKit.configure({
+        text: false,
         codeBlock: false,
         blockquote: false,
       }),
+      MarkdownSyntax,
+      MarkdownText,
+      WikiLink,
       Markdown.configure({
         linkify: true,
         breaks: true,
@@ -601,17 +648,18 @@ export default function App() {
     ],
     content: '',
     editorProps: {
+      transformPastedHTML: cleanDocumentHtml,
       attributes: {
         class: 'prose-custom w-full outline-none min-h-[360px] border-none focus:ring-0 text-[var(--text-primary)]',
       },
     },
     onUpdate: ({ editor: currentSlideEd }) => {
-      if (isUpdatingFromSlideRef.current || !editor) return;
+      if (!isPresentation || !slideEditing || isUpdatingFromSlideRef.current || !editor) return;
       const currentSlideHtml = currentSlideEd.getHTML();
 
-      const subSlides = currentSlideHtml.split(/<hr\b[^>]*\/?>/i);
+      const subSlides = splitPresentationSlides(currentSlideHtml);
       const fullHtml = editor.getHTML();
-      const rawSlides = fullHtml.split(/<hr\b[^>]*\/?>/i);
+      const rawSlides = splitPresentationSlides(fullHtml);
 
       const targetIdx = Math.min(Math.max(0, currentSlideIndex), rawSlides.length - 1);
 
@@ -620,42 +668,46 @@ export default function App() {
           rawSlides.splice(targetIdx, 1, ...subSlides);
           const newFullContent = rawSlides.join('<hr>');
           //@ts-ignore
-          editor.commands.setContent(newFullContent, false);
+          editor.commands.setContent(newFullContent, { emitUpdate: true });
           setCurrentSlideIndex(targetIdx + 1);
         } else {
           rawSlides[targetIdx] = currentSlideHtml;
           const newFullContent = rawSlides.join('<hr>');
           //@ts-ignore
-          editor.commands.setContent(newFullContent, false);
+          editor.commands.setContent(newFullContent, { emitUpdate: true });
         }
       });
     },
   });
 
-  // Sync active slide content into slideEditor whenever slide changes or presentation toggles
+  useEffect(() => { documentNameRef.current = docName; }, [docName]);
+  useEffect(() => { slideEditor?.setEditable(isPresentation && slideEditing, false); }, [slideEditor, slideEditing, isPresentation]);
   useEffect(() => {
-    if (isPresentation && slideEditor && editor) {
-      const fullHtml = editor.getHTML();
-      const rawSlides = fullHtml.split(/<hr\b[^>]*\/?>/i);
-      const targetIdx = Math.min(Math.max(0, currentSlideIndex), rawSlides.length - 1);
-      const targetContent = rawSlides[targetIdx] || '<p></p>';
-
-      if (slideEditor.getHTML() !== targetContent) {
-        isUpdatingFromSlideRef.current = true;
-        queueMicrotask(() => {
-          //@ts-ignore
-          slideEditor.commands.setContent(targetContent, false);
-          isUpdatingFromSlideRef.current = false;
-        });
-      }
-    }
-  }, [isPresentation, currentSlideIndex, editor, slideEditor]);
-
+    const h = () => { if(!document.fullscreenElement) {setIsPresentation(false);setIsTimerActive(false);} };
+    document.addEventListener('fullscreenchange',h);
+    return () => document.removeEventListener('fullscreenchange',h);
+  }, []);
+  useEffect(() => {
+    if(isPresentation) return;
+    setIsTimerActive(false);
+    if(document.fullscreenElement) document.exitFullscreen().catch(()=>{});
+  },[isPresentation]);
+  useEffect(() => {
+    if(!isPresentation) return;
+    const canvas=canvasRef.current;
+    const ctx=canvas?.getContext('2d');
+    if(!canvas||!ctx) return;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    const saved=annotationPages.current[currentSlideIndex];
+    let disposed=false;
+    if(saved){const img=new window.Image();img.onload=()=>{if(!disposed)ctx.drawImage(img,0,0,canvas.clientWidth,canvas.clientHeight);};img.src=saved;}
+    return()=>{disposed=true;annotationPages.current[currentSlideIndex]=canvas.toDataURL();};
+  },[currentSlideIndex,isPresentation]);
   // Slide management handlers in presentation mode
   const handleAddSlideInPresentation = () => {
     if (!editor) return;
     const fullHtml = editor.getHTML();
-    const rawSlides = fullHtml.split(/<hr\b[^>]*\/?>/i);
+    const rawSlides = splitPresentationSlides(fullHtml);
     const targetIdx = Math.min(Math.max(0, currentSlideIndex), rawSlides.length - 1);
     const insertIdx = targetIdx + 1;
     rawSlides.splice(insertIdx, 0, '<h2>新幻灯片</h2><p>点击在此处输入内容...</p>');
@@ -667,7 +719,7 @@ export default function App() {
   const handleDeleteSlideInPresentation = () => {
     if (!editor) return;
     const fullHtml = editor.getHTML();
-    const rawSlides = fullHtml.split(/<hr\b[^>]*\/?>/i);
+    const rawSlides = splitPresentationSlides(fullHtml);
     const targetIdx = Math.min(Math.max(0, currentSlideIndex), rawSlides.length - 1);
 
     if (rawSlides.length <= 1) {
@@ -688,6 +740,8 @@ export default function App() {
 
   const getSlideTransitionVariants = (type: string = 'slide-x', direction: number = 1) => {
     switch (type) {
+      case 'none':
+        return { initial: { opacity: 1 }, animate: { opacity: 1 }, exit: { opacity: 1 } };
       case 'fade':
         return {
           initial: { opacity: 0 },
@@ -741,11 +795,7 @@ export default function App() {
     }
   };
 
-  const getSlideDensityClass = () => {
-    return 'slide-density-normal';
-  };
-
-  useEffect(() => {
+useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // New File: Ctrl+Alt+N
       if (e.ctrlKey && e.altKey && e.key === 'n') {
@@ -1007,6 +1057,8 @@ export default function App() {
   // 主题与字体切换
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
+    document.documentElement.style.colorScheme = theme === 'dark' ? 'dark' : 'light';
+    try { localStorage.setItem('fluxmark_theme', theme); } catch { /* Theme remains usable without storage. */ }
   }, [theme]);
 
   useEffect(() => {
@@ -1124,12 +1176,13 @@ export default function App() {
     const currentContent = editor.getHTML();
     const isDocEmpty = !currentContent || currentContent === '<p></p>' || currentContent === '<p></p>\n' || currentContent.trim() === '';
 
-    const executeCreate = () => {
+    const executeCreate = async () => {
+      try {await storeDraft(documentId.current,docName,editor.getHTML());} catch {showToast('无法备份当前文档，请先导出');return;}
+      switchDocument('新建空白文档.md');
       editor.commands.setContent('<p></p>');
       editor.commands.focus();
-      setDocName('新建空白文档.md');
       setCurrentFileHandle(null);
-      localStorage.setItem(FLUXMARK_STORAGE_KEY, '');
+
       showToast('已新建空白文档');
     };
 
@@ -1146,16 +1199,18 @@ export default function App() {
     }
   };
 
-  const handleSelectTemplate = (template: DocumentTemplate) => {
+  const handleSelectTemplate = async (template: DocumentTemplate) => {
     if (!editor) return;
 
-    const executeApply = () => {
-      const parsedHtml = transformMarkdownToMathHTML(template.content);
-      editor.commands.setContent(parsedHtml);
+    const executeApply = async () => {
+      try { await storeDraft(documentId.current, docName, editor.getHTML()); }
+      catch { showToast('无法备份当前文档，请先导出'); return; }
+      const parsedHtml = template.content;
+      switchDocument(template.docName);
+      editor.commands.setContent(parseSafeEditorContent(editor, parsedHtml));
       editor.commands.focus();
-      setDocName(template.docName);
       setCurrentFileHandle(null);
-      localStorage.setItem(FLUXMARK_STORAGE_KEY, parsedHtml);
+
       showToast(`已成功载入示例模版: ${template.title}`);
     };
 
@@ -1179,60 +1234,37 @@ export default function App() {
     setShowTemplateModal(true);
   };
 
+  const resourceType = (name: string): ResourceItem['type'] => {
+    const dot = name.lastIndexOf('.');
+    const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
+    if (['md', 'txt', 'markdown'].includes(ext)) return 'file';
+    if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'avif'].includes(ext)) return 'image';
+    if (['mp4', 'webm', 'ogg', 'mov', 'm4v', 'mkv'].includes(ext)) return 'video';
+    if (['json', 'js', 'ts', 'html', 'css', 'jsx', 'tsx'].includes(ext)) return 'code';
+    return 'other';
+  };
+
   const scanDirectoryEntries = async (dirHandle: any, parentPath = ''): Promise<ResourceItem[]> => {
     const items: ResourceItem[] = [];
-    try {
-      for await (const entry of dirHandle.values()) {
-        const relPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
-        if (entry.kind === 'file') {
-          const ext = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
-          const isMarkdown = ['.md', '.txt', '.markdown'].includes(ext);
-          const isImage = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico', '.avif'].includes(ext);
-          const isVideo = ['.mp4', '.webm', '.ogg', '.mov', '.m4v', '.mkv'].includes(ext);
-          const isCode = ['.json', '.js', '.ts', '.html', '.css', '.jsx', '.tsx'].includes(ext);
-
-          let url: string | undefined = undefined;
-          let fileObj: File | undefined = undefined;
-          try {
-            fileObj = await entry.getFile();
-            if (fileObj) {
-              if (isImage || isVideo || parentPath === '.med' || relPath.startsWith('.med/')) {
-                url = registerMediaBlob(relPath, fileObj);
-              }
-            }
-          } catch (e) {
-            console.warn('Could not read file handle:', entry.name, e);
-          }
-
-          if (isMarkdown || isImage || isVideo || isCode) {
-            items.push({
-              id: relPath,
-              name: entry.name,
-              relativePath: relPath,
-              type: isMarkdown ? 'file' : isImage ? 'image' : isVideo ? ('video' as any) : 'code',
-              handle: entry,
-              file: fileObj,
-              size: fileObj?.size,
-              lastModified: fileObj?.lastModified,
-              url,
-            });
-          }
-        } else if (entry.kind === 'directory') {
-          if (parentPath.split('/').length < 2) {
-            const subChildren = await scanDirectoryEntries(entry, relPath);
-            items.push({
-              id: relPath,
-              name: entry.name,
-              relativePath: relPath,
-              type: 'folder',
-              handle: entry,
-              children: subChildren,
-            });
-          }
-        }
+    for await (const entry of dirHandle.values()) {
+      const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+      if (entry.kind === 'directory') {
+        const children = await scanDirectoryEntries(entry, relativePath);
+        items.push({ id: relativePath, name: entry.name, relativePath, type: 'folder', handle: entry, children });
+        continue;
       }
-    } catch (err) {
-      console.error('Directory scanning error:', err);
+      const type = resourceType(entry.name);
+      if (type === 'other') continue;
+      let file: File | undefined;
+      if (type === 'image' || type === 'video') {
+        try { file = await entry.getFile(); }
+        catch { /* The file can be retried from the tree. */ }
+      }
+      items.push({
+        id: relativePath, name: entry.name, relativePath, type, handle: entry, file,
+        size: file?.size, lastModified: file?.lastModified,
+        url: file ? registerMediaBlob(relativePath, file) : undefined,
+      });
     }
     return items;
   };
@@ -1246,11 +1278,14 @@ export default function App() {
     try {
       // @ts-ignore - File System Access API
       const dirHandle = await window.showDirectoryPicker();
+      const items = await scanDirectoryEntries(dirHandle);
+      resourceDocumentIds.current.clear();
       setCurrentDirectoryHandle(dirHandle);
       setCurrentDirectoryName(dirHandle.name);
 
-      const items = await scanDirectoryEntries(dirHandle);
       setResources(items);
+      setActiveResourceId(null);
+      setResourceTreeVersion(value => value + 1);
       setActiveSidebarTab('resources');
       showToast(`已成功打开工作区 ${dirHandle.name} (${items.length} 个本地资源)`);
     } catch (err: any) {
@@ -1264,58 +1299,105 @@ export default function App() {
   };
 
   const refreshDirectory = async () => {
-    if (currentDirectoryHandle) {
-      const items = await scanDirectoryEntries(currentDirectoryHandle);
-      setResources(items);
+    if (!currentDirectoryHandle) return;
+    try {
+      setResources(await scanDirectoryEntries(currentDirectoryHandle));
       showToast(`已刷新工作区 ${currentDirectoryName}`);
+    } catch {
+      showToast('无法刷新文件夹，请重新打开并检查读取权限');
     }
   };
 
-  const handleDirectoryOpen = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      const folderName = files[0].webkitRelativePath.split('/')[0] || '本地工作区';
-      setCurrentDirectoryName(folderName);
-      setCurrentDirectoryHandle(null);
+  const handleDirectoryOpen = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = '';
+    if (!files.length) return;
+    const folderName = files[0].webkitRelativePath.split('/')[0] || '本地工作区';
+    const items = files.flatMap((file): ResourceItem[] => {
+      const type = resourceType(file.name);
+      if (type === 'other') return [];
+      const relativePath = file.webkitRelativePath.split('/').slice(1).join('/') || file.name;
+      const url = type === 'image' || type === 'video' ? registerMediaBlob(relativePath, file) : undefined;
+      return [{ id: relativePath, name: file.name, relativePath, type, file, size: file.size, lastModified: file.lastModified, url }];
+    });
+    setCurrentDirectoryName(folderName);
+    resourceDocumentIds.current.clear();
+    setCurrentDirectoryHandle(null);
+    setResources(items);
+    setActiveResourceId(null);
+    setResourceTreeVersion(value => value + 1);
+    setActiveSidebarTab('resources');
+    showToast(`已打开本地项目 ${folderName}`);
+  };
 
-      const items: ResourceItem[] = [];
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const relPath = file.webkitRelativePath.replace(`${folderName}/`, '');
-        const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
-        const isMarkdown = ['.md', '.txt', '.markdown'].includes(ext);
-        const isImage = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico', '.avif'].includes(ext);
-        const isCode = ['.json', '.js', '.ts', '.html', '.css', '.jsx', '.tsx'].includes(ext);
+  const readResource = (resource: ResourceItem): Promise<File | Blob | undefined> =>
+    resource.handle?.getFile ? resource.handle.getFile() : Promise.resolve(resource.file);
 
-        let url: string | undefined = undefined;
-        if (isImage) {
-          url = URL.createObjectURL(file);
-        }
-
-        if (isMarkdown || isImage || isCode) {
-          items.push({
-            id: relPath || file.name,
-            name: file.name,
-            relativePath: relPath || file.name,
-            type: isMarkdown ? 'file' : isImage ? 'image' : 'code',
-            handle: file,
-            file,
-            size: file.size,
-            lastModified: file.lastModified,
-            url,
-          });
-        }
+  const insertResourceMedia = async (resource: ResourceItem) => {
+    if (!editor) return;
+    try {
+      if (!resource.url) {
+        const file = await readResource(resource);
+        if (!file) throw new Error('Missing media');
+        registerMediaBlob(resource.relativePath, file);
       }
+      if (resource.type === 'video') {
+        editor.chain().focus().setVideo({ src: resource.relativePath }).run();
+      } else {
+        editor.chain().focus().setImage({ src: resource.relativePath, alt: resource.name }).run();
+      }
+      showToast(`已插入 ${resource.name}`);
+    } catch {
+      showToast('无法读取媒体，请检查文件权限');
+    }
+  };
 
-      setResources(items);
-      setActiveSidebarTab('resources');
-      showToast(`已打开本地项目 ${folderName} (${items.length} 个资源文件)`);
+  const selectResource = async (resource: ResourceItem) => {
+    if (resource.type === 'video') { await insertResourceMedia(resource); return; }
+    if (resource.type === 'image') {
+      try {
+        const file = resource.file ?? (resource.url ? undefined : await readResource(resource));
+        const url = resource.url ?? (file && registerMediaBlob(resource.relativePath, file));
+        if (!url) throw new Error('Missing image');
+        setPreviewImageInfo({ ...resource, url, file });
+      } catch {
+        showToast('无法预览图片，请检查文件权限');
+      }
+      return;
+    }
+    if (!editor || resource.type !== 'file' || activeResourceId === resource.id) return;
+    const previousDocumentId = documentId.current;
+    try {
+      const file = await readResource(resource);
+      if (!file) throw new Error('Missing file');
+      const content = parseSafeEditorContent(editor, await file.text());
+      if (documentId.current !== previousDocumentId) return;
+      await storeDraft(previousDocumentId, documentNameRef.current, editor.getHTML());
+      if (documentId.current !== previousDocumentId) return;
+      const nextId = resourceDocumentIds.current.get(resource.id) ?? crypto.randomUUID();
+      resourceDocumentIds.current.set(resource.id, nextId);
+      switchDocument(resource.name, nextId);
+      setCurrentFileHandle(resource.handle ?? null);
+      setActiveResourceId(resource.id);
+      editor.commands.setContent(content);
+      showToast(`已打开文档 ${resource.name}`);
+    } catch {
+      showToast('无法打开文件或备份当前文档，请检查权限与存储空间');
     }
   };
 
   const handleCreateNewFileInWorkspace = async (fileName: string) => {
+    try { if (editor) await storeDraft(documentId.current, docName, editor.getHTML()); }
+    catch { showToast('无法备份当前文档，请先导出'); return; }
     if (currentDirectoryHandle) {
       try {
+        try {
+          await currentDirectoryHandle.getFileHandle(fileName);
+          showToast('此文件夹中已有同名文件，请换一个名称');
+          return;
+        } catch (error) {
+          if (!(error instanceof DOMException) || error.name !== 'NotFoundError') throw error;
+        }
         const fileHandle = await currentDirectoryHandle.getFileHandle(fileName, { create: true });
         const writable = await fileHandle.createWritable();
         const title = fileName.replace(/\.md$/, '');
@@ -1323,9 +1405,10 @@ export default function App() {
         await writable.write(initialText);
         await writable.close();
 
-        setDocName(fileName);
+        switchDocument(fileName);
         setCurrentFileHandle(fileHandle);
-        editor?.commands.setContent(initialText);
+        setActiveResourceId(fileName);
+        if (editor) editor.commands.setContent(parseSafeEditorContent(editor, initialText));
 
         await refreshDirectory();
         showToast(`已在工作区 ${currentDirectoryName} 中创建并保存 ${fileName}`);
@@ -1337,7 +1420,7 @@ export default function App() {
       // Memory / fallback mode
       const title = fileName.replace(/\.md$/, '');
       const initialText = `# ${title}\n\n开始编写 ${title}...\n`;
-      setDocName(fileName);
+      switchDocument(fileName);
       setCurrentFileHandle(null);
       editor?.commands.setContent(initialText);
 
@@ -1353,6 +1436,7 @@ export default function App() {
   };
 
   const openAppFile = async () => {
+    try {if(editor)await storeDraft(documentId.current,docName,editor.getHTML());} catch {showToast('无法备份当前文档，请先导出');return;}
     if (!('showOpenFilePicker' in window)) {
       fileInputRef.current?.click();
       return;
@@ -1365,8 +1449,8 @@ export default function App() {
       });
       const file = await handle.getFile();
       const content = await file.text();
-      editor?.commands.setContent(content);
-      setDocName(handle.name);
+      switchDocument(handle.name);
+      if (editor) editor.commands.setContent(parseSafeEditorContent(editor, content));
       setCurrentFileHandle(handle);
       showToast(`已打开文档 ${handle.name}`);
       
@@ -1392,8 +1476,8 @@ export default function App() {
       const reader = new FileReader();
       reader.onload = (re) => {
         if (re.target?.result) {
-          editor.commands.setContent(re.target.result as string);
-          setDocName(file.name);
+          switchDocument(file.name);
+          editor.commands.setContent(parseSafeEditorContent(editor, re.target.result as string));
           setCurrentFileHandle(null);
           showToast(`已打开文档 ${file.name}`);
         }
@@ -1438,6 +1522,7 @@ export default function App() {
           return [...prev, { id: handle.name, name: handle.name, relativePath: handle.name, type: 'file', handle }];
         });
 
+        setSaveState('已保存到文件');
         showToast(`文件已成功另存为 ${handle.name}`);
       } catch (err: any) {
         if (err.name === 'AbortError') {
@@ -1446,12 +1531,14 @@ export default function App() {
         console.warn('showSaveFilePicker 另存为受限或失败，降级下载:', err);
         const blob = new Blob([markdownOutput], { type: 'text/markdown;charset=utf-8' });
         saveAs(blob, defaultName);
-        showToast(`已保存文件 ${defaultName}`);
+        setSaveState('已请求下载副本');
+        showToast(`已请求下载副本 ${defaultName}`);
       }
     } else {
       const blob = new Blob([markdownOutput], { type: 'text/markdown;charset=utf-8' });
       saveAs(blob, defaultName);
-      showToast(`已保存文件 ${defaultName}`);
+      setSaveState('已请求下载副本');
+      showToast(`已请求下载副本 ${defaultName}`);
     }
   };
 
@@ -1469,6 +1556,7 @@ export default function App() {
         const markdownOutput = (editor.storage as any).markdown.getMarkdown();
         await writable.write(markdownOutput);
         await writable.close();
+        setSaveState('已保存到文件');
         showToast(`已保存至源文件 ${docName}`);
         return;
       } catch (err: any) {
@@ -1598,209 +1686,12 @@ export default function App() {
     return result.length > 0 ? result : Array.from({ length: totalPages }, (_, i) => i + 1);
   };
 
-  const generateCanvasFromDom = async (
-    element: HTMLElement,
-    backgroundColor: string,
-    scale: number = 2,
-    editorHtml?: string
-  ): Promise<HTMLCanvasElement> => {
-    // 1. Create a clean offscreen container positioned inside the viewport for reliable rendering
-    const width = Math.max(element.offsetWidth || 800, 720);
-    const container = document.createElement('div');
-    container.id = 'fluxmark-export-render-container';
-    container.style.position = 'fixed';
-    container.style.top = '0';
-    container.style.left = '0';
-    container.style.width = `${width}px`;
-    container.style.height = 'auto';
-    container.style.minHeight = '400px';
-    container.style.zIndex = '-9999';
-    container.style.opacity = '0.99';
-    container.style.pointerEvents = 'none';
-    container.style.backgroundColor = backgroundColor;
-
-    const isDarkBg = backgroundColor === '#0b0f19' || backgroundColor === '#081325';
-    const textColor = isDarkBg ? '#f8fafc' : '#0f172a';
-    container.style.color = textColor;
-    container.style.padding = '40px';
-    container.style.boxSizing = 'border-box';
-    container.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
-    container.style.lineHeight = '1.7';
-    container.style.fontSize = '15px';
-
-    if (editorHtml && editorHtml.trim()) {
-      container.innerHTML = `
-        <style>
-          #fluxmark-export-render-container { box-sizing: border-box; word-break: break-word; }
-          #fluxmark-export-render-container h1 { font-size: 2rem; font-weight: 800; margin-top: 1.2em; margin-bottom: 0.6em; line-height: 1.25; color: ${textColor}; }
-          #fluxmark-export-render-container h2 { font-size: 1.5rem; font-weight: 700; margin-top: 1.2em; margin-bottom: 0.5em; line-height: 1.3; color: ${textColor}; }
-          #fluxmark-export-render-container h3 { font-size: 1.25rem; font-weight: 600; margin-top: 1.1em; margin-bottom: 0.4em; color: ${textColor}; }
-          #fluxmark-export-render-container p { margin-top: 0; margin-bottom: 1em; line-height: 1.75; color: ${textColor}; }
-          #fluxmark-export-render-container ul, #fluxmark-export-render-container ol { padding-left: 1.5em; margin-bottom: 1em; }
-          #fluxmark-export-render-container li { margin-bottom: 0.35em; line-height: 1.6; }
-          #fluxmark-export-render-container blockquote { border-left: 4px solid #3b82f6; padding-left: 1em; margin-left: 0; margin-bottom: 1em; opacity: 0.88; font-style: italic; }
-          #fluxmark-export-render-container pre { background: ${isDarkBg ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)'}; padding: 1em; border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13px; margin-bottom: 1em; white-space: pre-wrap; }
-          #fluxmark-export-render-container code { background: ${isDarkBg ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)'}; padding: 0.2em 0.4em; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13px; }
-          #fluxmark-export-render-container pre code { background: none; padding: 0; }
-          #fluxmark-export-render-container img { max-width: 100%; height: auto; border-radius: 8px; margin: 1em 0; display: block; }
-          #fluxmark-export-render-container table { width: 100%; border-collapse: collapse; margin-bottom: 1em; }
-          #fluxmark-export-render-container th, #fluxmark-export-render-container td { border: 1px solid ${isDarkBg ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)'}; padding: 8px 12px; text-align: left; }
-          #fluxmark-export-render-container th { background: ${isDarkBg ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'}; font-weight: 700; }
-          #fluxmark-export-render-container hr { border: none; border-top: 1px solid ${isDarkBg ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)'}; margin: 2em 0; }
-        </style>
-        <div class="fluxmark-export-html-content">
-          ${editorHtml}
-        </div>
-      `;
-    } else {
-      const clone = element.cloneNode(true) as HTMLElement;
-      // Strip buttons and overlays
-      const toRemove = clone.querySelectorAll('button, script, iframe, .fixed, .pdf-export-modal-root, .toolbar-root');
-      toRemove.forEach(el => el.remove());
-      container.appendChild(clone);
-    }
-
-    document.body.appendChild(container);
-
-    try {
-      // Ensure all inline images are loaded before rendering canvas
-      const imgs = Array.from(container.querySelectorAll('img'));
-      if (imgs.length > 0) {
-        await Promise.all(
-          imgs.map((img) => {
-            if (img.complete) return Promise.resolve();
-            return new Promise<void>((resolve) => {
-              img.onload = () => resolve();
-              img.onerror = () => resolve();
-            });
-          })
-        );
-      }
-
-      // Attempt 1: html2canvas on container at requested scale
-      try {
-        const canvas = await html2canvas(container, {
-          scale: scale,
-          backgroundColor: backgroundColor,
-          useCORS: true,
-          allowTaint: true,
-          logging: false,
-        });
-        if (canvas && canvas.width > 0 && canvas.height > 0) {
-          return canvas;
-        }
-      } catch (err1) {
-        console.warn('html2canvas on export container failed:', err1);
-      }
-
-      // Attempt 2: html2canvas on container at scale 1
-      try {
-        const canvas = await html2canvas(container, {
-          scale: 1,
-          backgroundColor: backgroundColor,
-          useCORS: true,
-          allowTaint: true,
-          logging: false,
-        });
-        if (canvas && canvas.width > 0 && canvas.height > 0) {
-          return canvas;
-        }
-      } catch (err2) {
-        console.warn('html2canvas scale 1 failed:', err2);
-      }
-
-      // Attempt 3: toCanvas (html-to-image) on container
-      try {
-        const emptyPlaceholder =
-          'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU55ErJggg==';
-        const c3 = await toCanvas(container, {
-          pixelRatio: scale,
-          backgroundColor: backgroundColor,
-          skipFonts: true,
-          fontEmbedCSS: '',
-          imagePlaceholder: emptyPlaceholder,
-        });
-        if (c3 && c3.width > 0 && c3.height > 0) {
-          return c3;
-        }
-      } catch (err3) {
-        console.warn('toCanvas on container failed:', err3);
-      }
-
-      // Attempt 4: html2canvas directly on the live element
-      try {
-        const canvas = await html2canvas(element, {
-          scale: scale,
-          backgroundColor: backgroundColor,
-          useCORS: true,
-          allowTaint: true,
-          logging: false,
-          ignoreElements: (node) => {
-            if (node.tagName) {
-              const tag = node.tagName.toLowerCase();
-              if (['script', 'iframe', 'button'].includes(tag)) return true;
-              if (
-                node.classList &&
-                (node.classList.contains('fixed') ||
-                  node.classList.contains('pdf-export-modal-root') ||
-                  node.classList.contains('toolbar-root'))
-              ) {
-                return true;
-              }
-            }
-            return false;
-          },
-        });
-        if (canvas && canvas.width > 0 && canvas.height > 0) {
-          return canvas;
-        }
-      } catch (err4) {
-        console.warn('html2canvas live element failed:', err4);
-      }
-
-      // Ultimate Fallback: Direct 2D Canvas layout engine
-      const fallbackCanvas = document.createElement('canvas');
-      const containerHeight = Math.max(container.offsetHeight || 600, 400);
-      fallbackCanvas.width = Math.round(width * scale);
-      fallbackCanvas.height = Math.round(containerHeight * scale);
-      const ctx = fallbackCanvas.getContext('2d');
-      if (ctx) {
-        ctx.scale(scale, scale);
-        ctx.fillStyle = backgroundColor;
-        ctx.fillRect(0, 0, width, containerHeight);
-
-        ctx.fillStyle = textColor;
-        ctx.font = '16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-
-        const textContent = container.innerText || element.innerText || 'FluxMark Document';
-        const lines = textContent.split('\n');
-        let currentY = 40;
-        for (const line of lines) {
-          if (currentY > containerHeight - 20) break;
-          if (line.trim()) {
-            ctx.fillText(line.slice(0, 90), 32, currentY);
-            currentY += 24;
-          } else {
-            currentY += 12;
-          }
-        }
-        return fallbackCanvas;
-      }
-
-      throw new Error('Canvas render failed on all attempts');
-    } finally {
-      if (container.parentNode) {
-        container.parentNode.removeChild(container);
-      }
-    }
-  };
-
   const executeExportPDF = async (exportOpts: PDFExportOptions) => {
     if (!editor) return;
     const editorEl = editor.view.dom;
     if (!editorEl) return;
     
-    const captureEl = (editorEl.closest('.max-w-4xl') || editorEl.parentElement) as HTMLElement;
+    const captureEl = (editorEl.closest('.writing-canvas') || editorEl.parentElement) as HTMLElement;
     if (!captureEl) return;
 
     setIsPdfModalGenerating(true);
@@ -1808,7 +1699,7 @@ export default function App() {
     setPdfExportStatusText('正在初始化导出配置与排版测算...');
 
     const themeObj = THEME_OPTIONS.find(t => t.id === theme);
-    const bgHex = themeObj?.bgHex || '#ffffff';
+    const bgHex = exportOpts.printFriendly ? '#ffffff' : themeObj?.bgHex || '#ffffff';
 
     const originalTransform = captureEl.style.transform;
     const originalZoom = captureEl.style.zoom;
@@ -1816,7 +1707,8 @@ export default function App() {
     const originalOverflow = captureEl.style.overflow;
 
     try {
-      showToast('⏳ 正在生成矢量 PDF，请稍候...');
+      const [{generateCanvasFromDom}, {jsPDF}] = await Promise.all([import('./utils/exportCanvas'), import('jspdf')]);
+      showToast('正在生成 A4 图像 PDF…');
 
       captureEl.style.transform = 'none';
       captureEl.style.zoom = '1';
@@ -1827,15 +1719,15 @@ export default function App() {
       setPdfExportStatusText('正在按选定采样精度绘制 DOM 画布...');
 
       const scale = exportOpts.pageQuality === 'high' ? 2 : 1.5;
-      const editorHtml = editor ? editor.getHTML() : undefined;
+      const editorHtml = withExportBrand(renderExportHtml(editor.getHTML()), exportOpts.showBrandHeader);
       let canvas: HTMLCanvasElement | null = null;
       try {
-        canvas = await generateCanvasFromDom(captureEl, bgHex, scale, editorHtml);
+        canvas = await generateCanvasFromDom(captureEl, bgHex, scale, editorHtml, undefined, exportOpts.printFriendly);
       } catch (errRender) {
         console.warn('High quality canvas render failed, trying standard quality...', errRender);
         setPdfExportProgress(35);
-        setPdfExportStatusText('正在降级为 150DPI 标准质量渲染...');
-        canvas = await generateCanvasFromDom(captureEl, bgHex, 1, editorHtml);
+        setPdfExportStatusText('正在降级为 较低采样精度渲染...');
+        canvas = await generateCanvasFromDom(captureEl, bgHex, 1, editorHtml, undefined, exportOpts.printFriendly);
       }
 
       if (!canvas || canvas.width === 0 || canvas.height === 0) {
@@ -1845,15 +1737,8 @@ export default function App() {
       setPdfExportProgress(50);
       setPdfExportStatusText('画布绘制成功，正在按 A4 规格精准排版切分...');
 
-      const mmToPx = canvas.width / 210;
-      const pageCanvasHeight = Math.round(297 * mmToPx);
-
-      const marginTopPx = Math.round(15 * mmToPx);
-      const marginBottomPx = Math.round(15 * mmToPx);
-      const contentAreaPx = pageCanvasHeight - marginTopPx - marginBottomPx;
-
-      const sliceHeightPx = contentAreaPx;
-      const totalPages = Math.ceil(canvas.height / sliceHeightPx) || 1;
+      const {pageHeight: pageCanvasHeight, margin: marginTopPx, pages} = getPdfPages(canvas, bgHex);
+      const totalPages = pages.length;
 
       let targetPageNumbers: number[] = Array.from({ length: totalPages }, (_, i) => i + 1);
       if (exportOpts.pageRangeType === 'custom') {
@@ -1886,8 +1771,7 @@ export default function App() {
           ctx.fillStyle = bgHex;
           ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
 
-          const startY = pageIdx * sliceHeightPx;
-          const sliceH = Math.min(sliceHeightPx, canvas.height - startY);
+          const {start: startY, height: sliceH} = pages[pageIdx];
 
           ctx.drawImage(
             canvas,
@@ -1896,8 +1780,8 @@ export default function App() {
           );
         }
 
-        const pageDataUrl = pageCanvas.toDataURL('image/png');
-        pdf.addImage(pageDataUrl, 'PNG', 0, 0, 210, 297);
+        const pageDataUrl = pageCanvas.toDataURL('image/jpeg', exportOpts.pageQuality === 'high' ? .93 : .87);
+        pdf.addImage(pageDataUrl, 'JPEG', 0, 0, 210, 297);
       }
 
       setPdfExportProgress(95);
@@ -1929,7 +1813,7 @@ export default function App() {
   const executeExportImage = async (imageOpts: ImageExportOptions) => {
     if (!editor) return;
     const editorEl = editor.view.dom;
-    const captureEl = (editorEl.closest('.max-w-4xl') || editorEl.parentElement) as HTMLElement;
+    const captureEl = (editorEl.closest('.writing-canvas') || editorEl.parentElement) as HTMLElement;
     if (!captureEl) return;
 
     setIsPdfModalGenerating(true);
@@ -1943,10 +1827,10 @@ export default function App() {
     const originalPadding = captureEl.style.padding;
 
     let bgHex = '#ffffff';
-    if (imageOpts.bgColorType === 'theme') {
+    if (!imageOpts.printFriendly && imageOpts.bgColorType === 'theme') {
       const themeObj = THEME_OPTIONS.find(t => t.id === theme);
       bgHex = themeObj?.bgHex || '#ffffff';
-    } else if (imageOpts.bgColorType === 'dark') {
+    } else if (!imageOpts.printFriendly && imageOpts.bgColorType === 'dark') {
       bgHex = '#0b0f19';
     } else {
       bgHex = '#ffffff';
@@ -1966,15 +1850,16 @@ export default function App() {
       setPdfExportProgress(35);
       setPdfExportStatusText(`正在以 ${imageOpts.pixelRatio}x 像素密度渲染全景 DOM...`);
 
-      const editorHtml = editor ? editor.getHTML() : undefined;
+      const {generateCanvasFromDom} = await import('./utils/exportCanvas');
+      const editorHtml = withExportBrand(renderExportHtml(editor.getHTML()), imageOpts.showBrandHeader);
       let canvas: HTMLCanvasElement | null = null;
       try {
-        canvas = await generateCanvasFromDom(captureEl, bgHex, imageOpts.pixelRatio, editorHtml);
+        canvas = await generateCanvasFromDom(captureEl, bgHex, imageOpts.pixelRatio, editorHtml, padValue, imageOpts.printFriendly);
       } catch (errRender) {
         console.warn('High quality image render failed, trying standard quality...', errRender);
         setPdfExportProgress(50);
         setPdfExportStatusText('正在降级渲染 1x 长图...');
-        canvas = await generateCanvasFromDom(captureEl, bgHex, 1, editorHtml);
+        canvas = await generateCanvasFromDom(captureEl, bgHex, 1, editorHtml, padValue, imageOpts.printFriendly);
       }
 
       if (!canvas || canvas.width === 0 || canvas.height === 0) {
@@ -2023,6 +1908,41 @@ export default function App() {
     }
   };
 
+  const previewExport = async (tab: 'pdf' | 'image', options: PDFExportOptions | ImageExportOptions) => {
+    if (!editor) throw new Error('Editor unavailable');
+    const capture = (editor.view.dom.closest('.writing-canvas') || editor.view.dom.parentElement) as HTMLElement;
+    const currentBackground = THEME_OPTIONS.find(item => item.id === theme)?.bgHex || '#ffffff';
+    const image = 'bgColorType' in options ? options : undefined;
+    const background = options.printFriendly || image?.bgColorType === 'white' ? '#ffffff' : image?.bgColorType === 'dark' ? '#0b0f19' : currentBackground;
+    const {generateCanvasFromDom} = await import('./utils/exportCanvas');
+    const html = withExportBrand(renderExportHtml(editor.getHTML()), options.showBrandHeader);
+    const padding = image?.padding === 'tight' ? '16px' : image?.padding === 'relaxed' ? '48px' : image ? '32px' : undefined;
+    const canvas = await generateCanvasFromDom(capture, background, 1, html, padding, options.printFriendly);
+    const width = Math.min(460, canvas.width);
+    const isPdf = tab === 'pdf';
+    const {pageHeight, margin, pages: renderedPages} = getPdfPages(canvas, background);
+    const totalPages = renderedPages.length;
+    const pages = 'pageRangeType' in options && options.pageRangeType === 'custom'
+      ? parsePageRange(options.customPages, totalPages)
+      : Array.from({length: totalPages}, (_, index) => index + 1);
+    const previewPage = isPdf ? renderedPages[pages[0] - 1] : undefined;
+    const start = previewPage?.start ?? 0;
+    const contentHeight = previewPage?.height ?? Math.min(canvas.height, canvas.width * 2);
+    const thumbnail = document.createElement('canvas');
+    const factor = width / canvas.width;
+    thumbnail.width = width;
+    thumbnail.height = Math.round((isPdf ? pageHeight : contentHeight) * factor);
+    const context = thumbnail.getContext('2d');
+    if (!context) throw new Error('Preview canvas unavailable');
+    context.fillStyle = background;
+    context.fillRect(0, 0, width, thumbnail.height);
+    context.drawImage(canvas, 0, start, canvas.width, contentHeight, 0, isPdf ? margin * factor : 0, width, contentHeight * factor);
+    const ratio = image?.pixelRatio ?? 1;
+    return {src: thumbnail.toDataURL('image/png'), description: isPdf
+      ? `预计 ${pages.length} 页 A4 · 预览文档第 ${pages[0]} 页`
+      : `顶部预览 · 预计 ${canvas.width * ratio} × ${canvas.height * ratio} 像素`};
+  };
+
   const exportPDF = () => {
     setExportModalTab('pdf');
     setPdfExportProgress(0);
@@ -2037,36 +1957,26 @@ export default function App() {
     setIsPdfModalOpen(true);
   };
 
-  const exportHTML = () => {
+  const pasteMarkdown = async () => {
     if (!editor) return;
     try {
-      const htmlOutput = editor.getHTML();
-      const fullHtml = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="utf-8">
-          <title>FluxMark Export</title>
-          <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css">
-          <style>
-            :root { --accent: #1161f3; }
-            body { font-family: -apple-system, system-ui, sans-serif; padding: 60px; max-width: 800px; margin: 0 auto; line-height: 1.8; color: #1e293b; background: #fff; }
-            h1 { font-size: 2.5rem; font-bold; border-bottom: 2px solid #eee; padding-bottom: 15px; margin-top: 40px; color: #000; }
-            h2 { font-size: 1.8rem; font-bold; margin-top: 30px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
-            p { margin-bottom: 1.5rem; }
-            img { max-width: 100%; height: auto; border-radius: 12px; display: block; margin: 30px auto; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-            pre { background: #ffffff; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; overflow-x: auto; color: #1e293b; margin: 25px 0; font-size: 0.9rem; }
-            table { width: 100%; border-collapse: collapse; margin: 25px 0; border-radius: 8px; overflow: hidden; }
-            th, td { border: 1px solid #e2e8f0; padding: 12px 15px; text-align: left; }
-            th { background: #f8fafc; font-weight: bold; }
-            blockquote { border-left: 5px solid var(--accent); padding: 10px 25px; font-style: italic; color: #64748b; background: #f8fafc; margin: 25px 0; border-radius: 0 8px 8px 0; }
-            code:not(pre code) { background: #dbeafe; padding: 2px 6px; border-radius: 4px; color: #1e40af; font-family: monospace; }
-            mark { background-color: #dbeafe; color: #1e40af; padding: 0 4px; border-radius: 2px; font-style: normal; }
-          </style>
-        </head>
-        <body>${htmlOutput}</body>
-        </html>
-      `;
+      const text = await navigator.clipboard.readText();
+      if (!text.trim()) { showToast('剪贴板中没有 Markdown 文本'); return; }
+      const content = parseSafeEditorSlice(editor, text);
+      if (!content || !editor.chain().focus().insertContent(content).run()) {
+        showToast('无法插入剪贴板内容');
+      }
+    } catch {
+      showToast('无法读取剪贴板，请检查浏览器的剪贴板权限');
+    }
+  };
+
+  const exportHTML = async () => {
+    if (!editor) return;
+    try {
+      const htmlOutput = renderExportHtml(editor.getHTML(), true);
+      const {buildExportHtml} = await import('./utils/exportHtml');
+      const fullHtml = buildExportHtml(htmlOutput, markdownSkin);
       const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
       saveAs(blob, 'fluxmark-document.html');
       showToast('🌐 HTML 网页导出成功！');
@@ -2080,344 +1990,9 @@ export default function App() {
     if (!editor) return;
     try {
       showToast('⏳ 正在生成 Word 文档，请稍候...');
-      const json = editor.getJSON();
-      
-      // Theme colors
-      const accentColor = '1161F3'; // Hex without # for docx
-      const borderColor = 'E2E8F0';
-      const textColor = '1E293B';
-      const secondaryTextColor = '64748B';
-      const bgSecondary = 'F8FAFC';
-      const highlightColor = 'DBEAFE';
-
-      const children: any[] = [];
-
-      const parseNodes = async (nodes: any[], listLevel = 0, listType?: 'bullet' | 'ordered') => {
-        for (const node of nodes) {
-          switch (node.type) {
-            case 'heading': {
-              const level = node.attrs.level || 1;
-              children.push(
-                new docx.Paragraph({
-                  text: node.content?.map((c: any) => c.text).join('') || '',
-                  heading: level === 1 ? docx.HeadingLevel.HEADING_1 : level === 2 ? docx.HeadingLevel.HEADING_2 : docx.HeadingLevel.HEADING_3,
-                  spacing: { before: 400, after: 200 },
-                  border: level <= 2 ? {
-                    bottom: { color: level === 1 ? accentColor : borderColor, space: 10, style: docx.BorderStyle.SINGLE, size: level === 1 ? 24 : 12 },
-                  } : undefined,
-                })
-              );
-              break;
-            }
-            case 'paragraph': {
-              const runs = node.content?.map((c: any) => {
-                if (c.type === 'text') {
-                  return new docx.TextRun({
-                    text: c.text,
-                    bold: c.marks?.some((m: any) => m.type === 'bold'),
-                    italics: c.marks?.some((m: any) => m.type === 'italic'),
-                    color: c.marks?.find((m: any) => m.type === 'textStyle')?.attrs?.color?.replace('#', '') || textColor,
-                    shading: c.marks?.some((m: any) => m.type === 'highlight') ? {
-                      type: docx.ShadingType.CLEAR,
-                      fill: highlightColor,
-                      color: 'auto',
-                    } : undefined,
-                  });
-                } else if (c.type === 'inlineMath') {
-                  return new docx.TextRun({
-                    text: `$${c.attrs.latex}$`,
-                    color: accentColor,
-                    italics: true,
-                    font: 'Cambria Math',
-                  });
-                }
-                return null;
-              }).filter(Boolean);
-
-              const paragraphConfig: any = {
-                children: runs || [],
-                spacing: { line: 360, after: 200 },
-              };
-
-              if (listType === 'bullet') {
-                paragraphConfig.bullet = { level: listLevel - 1 };
-                paragraphConfig.spacing.after = 120;
-              } else if (listType === 'ordered') {
-                paragraphConfig.numbering = { reference: 'main-numbering', level: listLevel - 1 };
-                paragraphConfig.spacing.after = 120;
-              }
-
-              children.push(new docx.Paragraph(paragraphConfig));
-              break;
-            }
-            case 'bulletList':
-              if (node.content) await parseNodes(node.content, listLevel + 1, 'bullet');
-              break;
-            case 'orderedList':
-              if (node.content) await parseNodes(node.content, listLevel + 1, 'ordered');
-              break;
-            case 'listItem': {
-              if (node.content) await parseNodes(node.content, listLevel);
-              break;
-            }
-            case 'table': {
-              const rows = node.content?.map((row: any) => {
-                const cells = row.content?.map((cell: any) => {
-                  const cellChildren: any[] = [];
-                  cell.content?.forEach((p: any) => {
-                    const runs = p.content?.map((c: any) => new docx.TextRun({ text: c.text, bold: c.marks?.some((m: any) => m.type === 'bold') })) || [];
-                    cellChildren.push(new docx.Paragraph({ children: runs }));
-                  });
-                  return new docx.TableCell({
-                    children: cellChildren,
-                    verticalAlign: docx.VerticalAlign.CENTER,
-                    borders: {
-                      top: { style: docx.BorderStyle.SINGLE, size: 1, color: borderColor },
-                      bottom: { style: docx.BorderStyle.SINGLE, size: 1, color: borderColor },
-                      left: { style: docx.BorderStyle.SINGLE, size: 1, color: borderColor },
-                      right: { style: docx.BorderStyle.SINGLE, size: 1, color: borderColor },
-                    },
-                  });
-                }) || [];
-                return new docx.TableRow({ children: cells });
-              }) || [];
-              children.push(new docx.Table({ rows, width: { size: 100, type: docx.WidthType.PERCENTAGE } }));
-              break;
-            }
-            case 'blockquote': {
-              const quoteText = node.content?.map((p: any) => p.content?.map((c: any) => c.text).join('')).join('\n') || '';
-              children.push(
-                new docx.Paragraph({
-                  children: [new docx.TextRun({ text: quoteText, italics: true, color: secondaryTextColor })],
-                  indent: { left: 720 },
-                  shading: { type: docx.ShadingType.CLEAR, fill: bgSecondary },
-                  border: {
-                    left: { color: accentColor, space: 10, style: docx.BorderStyle.SINGLE, size: 24 },
-                  },
-                  spacing: { before: 200, after: 200, line: 360 },
-                })
-              );
-              break;
-            }
-            case 'horizontalRule':
-              children.push(
-                new docx.Paragraph({
-                  border: { bottom: { color: borderColor, space: 1, style: docx.BorderStyle.SINGLE, size: 6 } },
-                  spacing: { before: 200, after: 200 },
-                })
-              );
-              break;
-            case 'codeBlock': {
-              const codeText = node.content?.map((c: any) => c.text).join('') || '';
-              const language = node.attrs?.language || 'javascript';
-              
-              const hljsToHex: Record<string, string> = {
-                'hljs-keyword': '0550AE',
-                'hljs-selector-tag': '0550AE',
-                'hljs-built_in': '0550AE',
-                'hljs-string': '116329',
-                'hljs-attr': '116329',
-                'hljs-number': '0550AE',
-                'hljs-literal': '0550AE',
-                'hljs-comment': '6E7781',
-                'hljs-quote': '6E7781',
-                'hljs-title': '8250DF',
-                'hljs-section': '8250DF',
-                'hljs-name': '8250DF',
-                'hljs-variable': '953800',
-                'hljs-template-variable': '953800',
-                'hljs-type': '0550AE',
-                'hljs-tag': '116329',
-                'hljs-punctuation': '1B1F24',
-              };
-
-              const cellChildren: any[] = [];
-              
-              cellChildren.push(
-                new docx.Paragraph({
-                  children: [
-                    new docx.TextRun({ text: ' ● ● ●  ', color: 'CBD5E1', size: 16 }),
-                    new docx.TextRun({ text: language.toUpperCase(), font: 'Consolas', size: 16, color: '64748B', bold: true })
-                  ],
-                  spacing: { after: 100 },
-                })
-              );
-
-              try {
-                const highlighted = lowlight.highlight(language, codeText);
-                const linesOfRuns: docx.TextRun[][] = [[]];
-                
-                const processNode = (n: any, currentClasses: string[] = []) => {
-                  if (n.type === 'text') {
-                    const segments = n.value.split('\n');
-                    segments.forEach((segment: string, i: number) => {
-                      if (i > 0) linesOfRuns.push([]);
-                      if (segment) {
-                        const color = currentClasses.reduce((acc, cls) => hljsToHex[cls] || acc, textColor);
-                        linesOfRuns[linesOfRuns.length - 1].push(
-                          new docx.TextRun({ 
-                            text: segment, 
-                            font: 'Consolas', 
-                            size: 19,
-                            color: color,
-                            bold: currentClasses.some(cls => cls === 'hljs-keyword' || cls === 'hljs-title')
-                          })
-                        );
-                      }
-                    });
-                  } else if (n.children) {
-                    const newClasses = [...currentClasses, ...(n.properties?.className || [])];
-                    n.children.forEach((child: any) => processNode(child, newClasses));
-                  }
-                };
-
-                highlighted.children.forEach(n => processNode(n));
-
-                linesOfRuns.forEach(runs => {
-                  cellChildren.push(
-                    new docx.Paragraph({
-                      children: runs,
-                      spacing: { before: 0, after: 0, line: 240 },
-                    })
-                  );
-                });
-              } catch (err) {
-                codeText.split('\n').forEach(line => {
-                  cellChildren.push(
-                    new docx.Paragraph({
-                      children: [new docx.TextRun({ text: line, font: 'Consolas', size: 19, color: textColor })],
-                      spacing: { before: 0, after: 0, line: 240 },
-                    })
-                  );
-                });
-              }
-
-              children.push(
-                new docx.Table({
-                  width: { size: 100, type: docx.WidthType.PERCENTAGE },
-                  rows: [
-                    new docx.TableRow({
-                      children: [
-                        new docx.TableCell({
-                          children: cellChildren,
-                          shading: { type: docx.ShadingType.CLEAR, fill: 'F8FAFC' },
-                          borders: {
-                            top: { color: borderColor, style: docx.BorderStyle.SINGLE, size: 6 },
-                            bottom: { color: borderColor, style: docx.BorderStyle.SINGLE, size: 6 },
-                            left: { color: borderColor, style: docx.BorderStyle.SINGLE, size: 6 },
-                            right: { color: borderColor, style: docx.BorderStyle.SINGLE, size: 6 },
-                          },
-                          margins: { top: 150, bottom: 150, left: 150, right: 150 },
-                        })
-                      ]
-                    })
-                  ]
-                })
-              );
-              children.push(new docx.Paragraph({ spacing: { after: 200 } }));
-              break;
-            }
-            case 'image':
-            case 'imageResize': {
-              const rawSrc = node.attrs?.src;
-              const imgSrc = rawSrc ? (getMediaBlobUrl(rawSrc) || rawSrc) : '';
-              if (imgSrc) {
-                try {
-                  const res = await fetch(imgSrc);
-                  const blob = await res.blob();
-                  const arrayBuffer = await blob.arrayBuffer();
-                  children.push(
-                    new docx.Paragraph({
-                      children: [
-                        new docx.ImageRun({
-                          data: arrayBuffer,
-                          transformation: {
-                            width: node.attrs?.width ? Math.min(parseInt(node.attrs.width), 550) : 500,
-                            height: node.attrs?.height ? parseInt(node.attrs.height) : 300,
-                          },
-                        } as any),
-                      ],
-                      alignment: docx.AlignmentType.CENTER,
-                      spacing: { before: 200, after: 200 },
-                    })
-                  );
-                } catch (err) {
-                  children.push(
-                    new docx.Paragraph({
-                      children: [new docx.TextRun({ text: `[图片: ${node.attrs?.alt || rawSrc}]`, italics: true, color: secondaryTextColor })],
-                      alignment: docx.AlignmentType.CENTER,
-                      spacing: { before: 200, after: 200 },
-                    })
-                  );
-                }
-              }
-              break;
-            }
-            case 'blockMath': {
-              children.push(
-                new docx.Paragraph({
-                  children: [new docx.TextRun({ text: `$$${node.attrs.latex}$$`, color: accentColor, font: 'Cambria Math' })],
-                  alignment: docx.AlignmentType.CENTER,
-                  spacing: { before: 200, after: 200 },
-                })
-              );
-              break;
-            }
-          }
-        }
-      };
-
-      if (json.content) await parseNodes(json.content);
-
-      const doc = new docx.Document({
-        numbering: {
-          config: [
-            {
-              reference: "main-numbering",
-              levels: [
-                { level: 0, format: docx.LevelFormat.DECIMAL, text: "%1.", alignment: docx.AlignmentType.START },
-                { level: 1, format: docx.LevelFormat.DECIMAL, text: "%1.%2.", alignment: docx.AlignmentType.START },
-                { level: 2, format: docx.LevelFormat.DECIMAL, text: "%1.%2.%3.", alignment: docx.AlignmentType.START },
-              ],
-            },
-          ],
-        },
-        sections: [{
-          properties: {},
-          children: children,
-        }],
-        styles: {
-          paragraphStyles: [
-            {
-              id: "Heading1",
-              name: "Heading 1",
-              basedOn: "Normal",
-              next: "Normal",
-              quickFormat: true,
-              run: {
-                size: 56, // 28pt
-                bold: true,
-                color: accentColor,
-              },
-            },
-            {
-              id: "Heading2",
-              name: "Heading 2",
-              basedOn: "Normal",
-              next: "Normal",
-              quickFormat: true,
-              run: {
-                size: 40, // 20pt
-                bold: true,
-                color: '334155',
-              },
-            }
-          ]
-        }
-      });
-
-      const blob = await docx.Packer.toBlob(doc);
-      saveAs(blob, `fluxmark-${Date.now()}.docx`);
+      const {buildWordDocument} = await import('./utils/exportWord');
+      const blob = await buildWordDocument(editor.getJSON());
+      saveAs(blob, (docName || 'document').replace(/\.md$/i, '') + '.docx');
       showToast('📝 Word 文档 (.docx) 导出成功！');
     } catch (e) {
       console.error('Export Word docx failed:', e);
@@ -2533,22 +2108,27 @@ export default function App() {
   useEffect(() => {
     let interval: any;
     if (isTimerActive && isPresentation) {
+      let lastTick = Date.now();
       interval = setInterval(() => {
+        const now = Date.now();
+        const elapsed = Math.floor((now-lastTick)/1000);
+        if (!elapsed) return;
+        lastTick += elapsed*1000;
         if (isCountdownMode) {
           setTimerTime(prev => {
                 if (prev <= 10 && prev > 0) {
                   playAlarmSound(440, 0.1);
                 }
-                if (prev <= 1) {
+                if (prev <= elapsed) {
                   playAlarmSound(880, 0.3);
                   setIsTimerActive(false);
-                  setTimeout(() => alert('倒计时结束！'), 100);
+                  setTimeout(() => showToast('倒计时结束'), 0);
                   return 0;
                 }
-                return prev - 1;
+                return Math.max(0, prev - elapsed);
           });
         } else {
-          setTimerTime(prev => prev + 1);
+          setTimerTime(prev => prev + elapsed);
         }
       }, 1000);
     }
@@ -2556,7 +2136,8 @@ export default function App() {
   }, [isTimerActive, isPresentation, isCountdownMode, playAlarmSound]);
 
   const startCountdown = (minutes: number) => {
-    setTimerTime(minutes * 60);
+    if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 180) { showToast("请输入 1–180 分钟"); return; }
+    setTimerTime(Math.round(minutes * 60));
     setIsCountdownMode(true);
     setIsTimerActive(true);
     setShowCountdownModal(false);
@@ -2686,7 +2267,7 @@ export default function App() {
       const isEditing = (e.target as HTMLElement)?.closest('.ProseMirror') || (e.target as HTMLElement)?.isContentEditable || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
 
       const fullHtml = editor?.getHTML() || '';
-      const rawSlides = fullHtml.split(/<hr\b[^>]*\/?>/i);
+      const rawSlides = splitPresentationSlides(fullHtml);
       const slideCount = rawSlides.length || 1;
 
       if (isEditing) {
@@ -2729,39 +2310,46 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isPresentation, editor]);
 
-  const renderSlideHtml = (rawHtml: string) => {
-    if (!rawHtml || !rawHtml.trim()) {
-      return '<div class="text-center text-slate-400 italic py-16">（本页暂无内容）</div>';
-    }
-    let processed = rawHtml
-      .replace(/<span\s+data-type="inline-math"\s+data-latex="([^"]*)"[^>]*><\/span>/gi, (_, latex) => {
-        const decodedLatex = latex.replace(/&quot;/g, '"');
-        try {
-          return katex.renderToString(decodedLatex, { displayMode: false, throwOnError: false });
-        } catch {
-          return decodedLatex;
-        }
-      })
-      .replace(/<div\s+data-type="block-math"\s+data-latex="([^"]*)"[^>]*><\/div>/gi, (_, latex) => {
-        const decodedLatex = latex.replace(/&quot;/g, '"');
-        try {
-          return katex.renderToString(decodedLatex, { displayMode: true, throwOnError: false });
-        } catch {
-          return decodedLatex;
-        }
+  function renderExportHtml(html: string, standalone = false) {
+    const template = document.createElement('template');
+    template.innerHTML = cleanDocumentHtml(html);
+    template.content.querySelectorAll<HTMLElement>('[data-type="inline-math"], [data-type="block-math"]').forEach(node => {
+      node.innerHTML = katex.renderToString(node.dataset.latex ?? node.getAttribute('latex') ?? '', {
+        displayMode: node.dataset.type === 'block-math',
+        output: standalone ? 'mathml' : 'html',
+        throwOnError: false,
+        trust: false,
       });
-    return processed;
-  };
+    });
+    return template.innerHTML;
+  }
 
-  const togglePresentation = () => {
-    setIsPresentation(!isPresentation);
+  const jumpToPresentationSource = (index: number) => {
+    if (!editor) return;
+    let page = 0;
+    let position = 1;
+    editor.state.doc.forEach((node, offset) => {
+      if (node.type.name === 'horizontalRule' && ++page === index) {
+        position = Math.min(editor.state.doc.content.size, offset + node.nodeSize + 1);
+      }
+    });
+    setShowPresentationPreview(false);
+    requestAnimationFrame(() => editor.chain().focus().setTextSelection(position).scrollIntoView().run());
+  };
+  const togglePresentation = async () => {
     if (!isPresentation) {
+      // Mount the slide after fullscreen has established the presentation size.
+      await containerRef.current?.requestFullscreen().catch(() => {});
       setCurrentSlideIndex(0);
-      containerRef.current?.requestFullscreen().catch(() => {});
+      setSlideEditing(false);
+      setPresentTool('select');
+      annotationPages.current={};
+      setIsPresentation(true);
       setTimerTime(0);
       setIsCountdownMode(false);
       setIsTimerActive(true);
     } else {
+      setIsPresentation(false);
       setIsTimerActive(false);
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
@@ -2769,317 +2357,216 @@ export default function App() {
     }
   };
 
-  const rawSlides = (editor?.getHTML() || '').split(/<hr\b[^>]*\/?>/i);
-  const slides = rawSlides.length > 0 ? rawSlides : [''];
+  const restoreDraft = async (draft: Draft) => {
+    if (!editor) return;
+    try {
+      await storeDraft(documentId.current, docName, editor.getHTML());
+      setCurrentFileHandle(null);
+      switchDocument(draft.name, draft.documentId);
+      editor.commands.setContent(parseSafeEditorContent(editor, draft.html));
+    } catch { showToast('无法备份当前内容，请先导出'); }
+  };
+
+  const localWikiNotes = useMemo(() => resourceNotes(resources), [resources]);
+  const currentWikiId = activeResourceId && localWikiNotes.some(note => note.resource?.id === activeResourceId)
+    ? 'file:' + activeResourceId : 'draft:' + documentId.current;
+  const currentWikiPath = localWikiNotes.find(note => note.id === currentWikiId)?.path ?? docName;
+  const wikiNotes = useMemo(() => {
+    const current: WikiNote = { id: currentWikiId, title: docName, path: currentWikiPath };
+    const known = new Set([documentId.current, ...resourceDocumentIds.current.values()]);
+    const browserNotes: WikiNote[] = [];
+    for (const draft of wikiDrafts) {
+      if (known.has(draft.documentId)) continue;
+      known.add(draft.documentId);
+      browserNotes.push({ id: 'draft:' + draft.documentId, title: draft.name, path: draft.name, draft });
+    }
+    return [localWikiNotes.find(note => note.id === currentWikiId) ?? current,
+      ...localWikiNotes.filter(note => note.id !== currentWikiId), ...browserNotes];
+  }, [currentWikiId, currentWikiPath, docName, localWikiNotes, wikiDrafts]);
+
+  const needsWikiIndex = showGraph || (showSidebar && activeSidebarTab === 'backlinks');
+  useEffect(() => {
+    if (!needsWikiIndex || !editor || !localWikiNotes.length) {
+      setIndexingWiki(false);
+      return;
+    }
+    let active = true;
+    setIndexingWiki(true);
+    setDiskWikiTargets({});
+    void (async () => {
+      const targets: Record<string, string[]> = {};
+      for (const note of localWikiNotes) {
+        if (!active) return;
+        try {
+          const file = await readResource(note.resource!);
+          if (!active) return;
+          if (file) {
+            const parser = (editor.storage as any).markdown.parser;
+            targets[note.id] = wikiTargets(parser.parse(await file.text()));
+          }
+        } catch { /* Leave inaccessible files visible as unindexed nodes. */ }
+      }
+      if (active) {
+        setDiskWikiTargets(targets);
+        setIndexingWiki(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [editor, localWikiNotes, needsWikiIndex]);
+
+  const wikiEdges = useMemo(() => {
+    if (!needsWikiIndex) return [];
+    const edges: WikiEdge[] = [];
+    for (const note of wikiNotes) {
+      const targets = note.id === currentWikiId ? currentWikiTargets
+        : note.draft ? wikiTargets(note.draft.html) : diskWikiTargets[note.id] ?? [];
+      const linked = new Set<string>();
+      for (const target of targets) {
+        const matches = wikiMatches(wikiNotes, target, note.path);
+        if (matches.length !== 1 || matches[0].id === note.id || linked.has(matches[0].id)) continue;
+        linked.add(matches[0].id);
+        edges.push({ source: note.id, target: matches[0].id });
+      }
+    }
+    return edges;
+  }, [needsWikiIndex, wikiNotes, currentWikiId, currentWikiTargets, diskWikiTargets]);
+
+  const openWikiNote = async (note: WikiNote) => {
+    if (note.id !== currentWikiId) {
+      if (note.resource) await selectResource(note.resource);
+      else if (note.draft) await restoreDraft(note.draft);
+    }
+    setShowGraph(false);
+  };
+
+  const followWikiLink = (target: string) => {
+    const matches = wikiMatches(wikiNotes, target, currentWikiPath);
+    if (matches.length === 1) void openWikiNote(matches[0]);
+    else showToast(matches.length ? '找到多个同名文档，请使用文件夹路径区分' : `未找到链接文档「${target}」`);
+  };
+
+  const backlinks = wikiNotes.filter(note => wikiEdges.some(edge => edge.source === note.id && edge.target === currentWikiId));
+
+  const presentationHtml = (isPresentation || showPresentationPreview) ? editor?.getHTML() || '' : '';
+  const slides = useMemo(() => splitPresentationSlides(presentationHtml), [presentationHtml]);
   const validSlideIndex = Math.min(Math.max(0, currentSlideIndex), slides.length - 1);
+  const activeSlideHtml = slides[validSlideIndex];
+  const slideLayout = useMemo(() => slideEditing ? 'reading' : getPresentationLayout(activeSlideHtml), [slideEditing, activeSlideHtml]);
+  const canPinchSlide = !slideEditing && presentTool === 'select';
+  const observeSlideViewport = useCallback((viewport: HTMLDivElement | null) => {
+    releaseSlideViewport.current?.();
+    releaseSlideViewport.current = undefined;
+    slideViewport.current = viewport;
+    if (!viewport) return;
+    const measure = () => setSlideOverflow(viewport.scrollHeight > viewport.clientHeight + 2);
+    const observer = new ResizeObserver(measure);
+    observer.observe(viewport);
+    const flow = viewport.querySelector<HTMLElement>('.presentation-flow');
+    if (flow) observer.observe(flow);
+    const disablePinch = canPinchSlide && flow ? enablePresentationPinch(viewport, flow) : undefined;
+    releaseSlideViewport.current = () => {
+      observer.disconnect();
+      disablePinch?.();
+    };
+    measure();
+  }, [canPinchSlide, validSlideIndex]);
+
+  useLayoutEffect(() => {
+    if (!isPresentation || !slideEditor) return;
+    const targetContent = activeSlideHtml || '<p></p>';
+    if (slideEditor.getHTML() !== targetContent) {
+      isUpdatingFromSlideRef.current = true;
+      try {
+        slideEditor.commands.setContent(targetContent, { emitUpdate: false });
+      } finally {
+        isUpdatingFromSlideRef.current = false;
+      }
+    }
+    if (!fitSlides || slideEditing) return;
+    const viewport = slideViewport.current;
+    const flow = viewport?.querySelector<HTMLElement>('.presentation-flow');
+    const content = flow?.querySelector<HTMLElement>('.presentation-content');
+    if (!viewport || !flow || !content || slideLayout === 'empty') return;
+
+    const fit = () => {
+      content.style.removeProperty('zoom');
+      content.style.removeProperty('width');
+      const width = content.offsetWidth;
+      const height = content.offsetHeight;
+      const padding = getComputedStyle(flow);
+      const available = viewport.clientHeight - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom);
+      if (!width || !height || available <= 0) return;
+      const scale = Math.max(.8, Math.min(1, (available - 2) / height));
+      content.style.width = `${width}px`;
+      content.style.zoom = String(scale);
+    };
+
+    viewport.scrollTop = 0;
+    fit();
+    // A slide's content must not trigger another fit after it has been shown.
+    let windowWidth = window.innerWidth;
+    let windowHeight = window.innerHeight;
+    const resize = () => {
+      if (windowWidth === window.innerWidth && windowHeight === window.innerHeight) return;
+      windowWidth = window.innerWidth;
+      windowHeight = window.innerHeight;
+      fit();
+    };
+    window.addEventListener('resize', resize);
+    return () => {
+      window.removeEventListener('resize', resize);
+      content.style.removeProperty('width');
+      content.style.removeProperty('zoom');
+    };
+  }, [isPresentation, fitSlides, slideEditing, validSlideIndex, activeSlideHtml, slideLayout, slideEditor, markdownSkin]);
 
   return (
-    <div ref={containerRef} className="h-screen flex flex-col font-sans relative overflow-hidden select-none bg-[var(--bg-secondary)]">
+    <div ref={containerRef} className="flux-shell h-screen flex flex-col font-sans relative overflow-hidden select-none bg-[var(--bg-secondary)]">
       {/* --- 顶部工具栏 --- */}
-      <header className="h-14 border-b border-[var(--border)] bg-[var(--bg-primary)] px-3 sm:px-4 flex items-center justify-between z-40 shrink-0 gap-2 sm:gap-4">
-        <div className="flex items-center gap-3 sm:gap-6 shrink-0">
-          <button 
-            onClick={() => setShowSidebar(!showSidebar)}
-            className="p-2 hover:bg-[var(--bg-secondary)] rounded-lg text-[var(--text-secondary)] transition-colors shrink-0"
-            title={showSidebar ? "收起侧边栏" : "展开侧边栏"}
-          >
-            {showSidebar ? <PanelLeftClose size={20} /> : <PanelLeft size={20} />}
-          </button>
+      <WorkspaceChrome settings={settingsOpen} setSettings={setSettingsOpen} name={docName} status={saveState} sidebar={showSidebar} ai={showAIChat} theme={theme} themes={THEME_OPTIONS} font={fontFamily} fonts={FONT_OPTIONS}
+        onName={setDocName} onSidebar={()=>setShowSidebar(v=>!v)} onAI={()=>setShowAIChat(v=>!v)} onPresent={()=>setShowPresentationPreview(true)} onTheme={v=>setTheme(v as Theme)} onFont={setFontFamily} onSave={saveFile}
+        fileActions={[{label:'粘贴为 Markdown',run:pasteMarkdown},{label:'新建文档',run:createNewFile},{label:'打开文件…',run:openAppFile},{label:'另存为…',run:saveAsFile},{label:'从模板开始…',run:()=>setShowTemplateModal(true)},{label:'插入图片…',run:()=>{const input=document.createElement('input');input.type='file';input.accept='image/*';input.onchange=handleImageUpload as any;input.click();}},{label:'插入视频…',run:()=>{const input=document.createElement('input');input.type='file';input.accept='video/*';input.onchange=handleVideoUpload as any;input.click();}}]}
+        exportActions={[{label:'Markdown · 可继续编辑',run:exportMarkdown},{label:'PDF · 打印与分享',run:exportPDF},{label:'图片 · 长图分享',run:exportImage},{label:'Word · 办公文档',run:exportWord},{label:'HTML · 网页文件',run:exportHTML}]}
+        helpActions={[{label:'快捷键与使用指南',run:()=>setShowHelpModal(true)},{label:'隐私与数据说明',run:()=>setShowPrivacyModal(true)}]} />
 
-          <div className="flex items-center gap-2 text-[var(--accent)] font-bold text-lg cursor-pointer shrink-0">
-            <div className="p-1 px-2 bg-[var(--accent)] rounded text-white flex items-center justify-center shrink-0">
-              <FluxLogo size={20} />
-            </div>
-            <span className="tracking-tight whitespace-nowrap">FluxMark</span>
-          </div>
 
-          <nav className="flex items-center gap-1 shrink-0">
-            <ToolbarGroup label="文件">
-              <ToolbarItem icon={<FilePlus size={16} />} label="新建" onClick={createNewFile} />
-              <ToolbarItem icon={<Upload size={16} />} label="打开" onClick={openAppFile} />
-              <ToolbarItem icon={<Save size={16} />} label="保存" onClick={saveFile} />
-              <ToolbarItem icon={<FileDown size={16} />} label="另存为..." onClick={saveAsFile} />
-              <ToolbarItem icon={<SparklesIcon size={16} className="text-[var(--accent)]" />} label="精选示例模版..." onClick={() => setShowTemplateModal(true)} />
-            </ToolbarGroup>
-            
-            <ToolbarGroup label="导出">
-              <ToolbarItem icon={<FileCode size={16} />} label="导出 Markdown" onClick={exportMarkdown} />
-              <ToolbarItem icon={<Printer size={16} />} label="导出 PDF" onClick={exportPDF} />
-              <ToolbarItem icon={<Download size={16} />} label="生成图片" onClick={exportImage} />
-              <ToolbarItem icon={<FileText size={16} />} label="导出 HTML" onClick={exportHTML} />
-              <ToolbarItem icon={<FileDown size={16} />} label="导出 Word" onClick={exportWord} />
-            </ToolbarGroup>
-
-            <ToolbarGroup label="主题" alignRight>
-              <div className="w-72 sm:w-80 max-w-[calc(100vw-2rem)] p-2 space-y-3">
-                {/* 界面主题设置 */}
-                <div>
-                  <div className="px-2 py-1 text-[10px] font-bold text-[var(--text-secondary)] border-b border-[var(--border)] mb-1 flex items-center justify-between">
-                    <span>界面色彩主题</span>
-                    <span className="font-normal text-[9px] opacity-75">共 {THEME_OPTIONS.length} 款</span>
-                  </div>
-                  <div className="space-y-1">
-                    {THEME_OPTIONS.map((t) => {
-                      const isActive = theme === t.id;
-                      return (
-                        <button
-                          key={t.id}
-                          onClick={() => setTheme(t.id)}
-                          className={`w-full text-left px-2.5 py-2 rounded-xl text-xs flex items-center justify-between transition-all cursor-pointer group border ${
-                            isActive 
-                              ? 'bg-blue-500/10 border-blue-500/50 text-[var(--text-primary)] font-bold shadow-2xs' 
-                              : 'border-transparent text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] hover:border-[var(--border)]'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <span 
-                              className="p-1.5 rounded-lg border text-[var(--text-secondary)] group-hover:text-[var(--accent)] shrink-0 transition-colors shadow-2xs"
-                              style={{ backgroundColor: t.bgHex, borderColor: t.accentHex }}
-                            >
-                              {t.icon}
-                            </span>
-                            <div className="flex flex-col min-w-0">
-                              <div className="font-semibold text-xs truncate flex items-center gap-1.5">
-                                <span>{t.name}</span>
-                                <span 
-                                  className="text-[9px] font-normal px-1.5 py-0.2 rounded-full border opacity-90"
-                                  style={{ 
-                                    backgroundColor: `${t.accentHex}15`, 
-                                    color: t.accentHex, 
-                                    borderColor: `${t.accentHex}40` 
-                                  }}
-                                >
-                                  {t.tag}
-                                </span>
-                              </div>
-                              <span className="text-[10px] text-[var(--text-secondary)] font-normal truncate opacity-80 mt-0.5">{t.desc}</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1.5 pl-2 shrink-0">
-                            <div className="flex items-center -space-x-1">
-                              <span 
-                                className="w-3.5 h-3.5 rounded-full border border-black/20 dark:border-white/30 shadow-xs z-10" 
-                                style={{ backgroundColor: t.bgHex }} 
-                                title="背景 Preview"
-                              />
-                              <span 
-                                className="w-3.5 h-3.5 rounded-full border border-black/20 dark:border-white/30 shadow-xs" 
-                                style={{ backgroundColor: t.accentHex }} 
-                                title="主色 Preview"
-                              />
-                            </div>
-                            {isActive && (
-                              <Check size={14} className="text-[var(--accent)] ml-0.5" strokeWidth={2.5} />
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* 编辑器正文字体设置 */}
-                <div className="pt-2.5 border-t border-[var(--border)]">
-                  <div className="px-2 py-1 text-[10px] font-bold text-[var(--text-secondary)] mb-1.5 flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <Type size={13} className="text-[var(--accent)]" />
-                      <span>正文与编辑器字体</span>
-                    </span>
-                    <span className="text-[9px] font-mono text-[var(--accent)] font-bold bg-blue-50 dark:bg-blue-950/80 px-1.5 py-0.5 rounded border border-blue-200/60 dark:border-blue-800/60">
-                      {FONT_OPTIONS.find(f => f.id === fontFamily)?.categoryLabel || '实时渲染'}
-                    </span>
-                  </div>
-
-                  {/* Font Select Dropdown */}
-                  <div className="relative px-0.5">
-                    <select
-                      value={fontFamily}
-                      onChange={(e) => {
-                        const fontId = e.target.value;
-                        setFontFamily(fontId);
-                        const found = FONT_OPTIONS.find(f => f.id === fontId);
-                        if (found) {
-                          showToast(`已实时切换编辑器字体：${found.name}`);
-                        }
-                      }}
-                      className="w-full bg-[var(--bg-secondary)] text-[var(--text-primary)] border border-[var(--border)] rounded-xl px-3 py-2 pr-8 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-[var(--accent)] cursor-pointer appearance-none transition-all shadow-2xs"
-                      style={{ fontFamily: FONT_OPTIONS.find(f => f.id === fontFamily)?.value || 'inherit' }}
-                    >
-                      <optgroup label="—— 无衬线字体 (Sans-Serif) ——">
-                        {FONT_OPTIONS.filter(f => f.category === 'sans').map(f => (
-                          <option key={f.id} value={f.id} style={{ fontFamily: f.value }}>
-                            {f.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                      <optgroup label="—— 衬线字体 (Serif) ——">
-                        {FONT_OPTIONS.filter(f => f.category === 'serif').map(f => (
-                          <option key={f.id} value={f.id} style={{ fontFamily: f.value }}>
-                            {f.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                      <optgroup label="—— 等宽字体 (Monospace) ——">
-                        {FONT_OPTIONS.filter(f => f.category === 'mono').map(f => (
-                          <option key={f.id} value={f.id} style={{ fontFamily: f.value }}>
-                            {f.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    </select>
-                    <div className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-[var(--text-secondary)]">
-                      <ChevronDown size={14} />
-                    </div>
-                  </div>
-
-                  {/* Font Sample Cards / Quick Switchers */}
-                  <div className="mt-2.5 grid grid-cols-2 gap-1.5 px-0.5">
-                    {FONT_OPTIONS.map((f) => {
-                      const isActive = fontFamily === f.id;
-                      return (
-                        <button
-                          key={f.id}
-                          onClick={() => {
-                            setFontFamily(f.id);
-                            showToast(`已实时切换编辑器字体：${f.name}`);
-                          }}
-                          className={`p-1.5 px-2 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-1.5 ${
-                            isActive
-                              ? 'border-blue-500 bg-blue-50/90 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 font-bold shadow-2xs'
-                              : 'border-[var(--border)] text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] hover:border-slate-300 dark:hover:border-slate-600'
-                          }`}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="text-[11px] font-medium truncate leading-tight flex items-center gap-1">
-                              <span>{f.name}</span>
-                            </div>
-                            <div 
-                              className="text-[10px] opacity-75 truncate mt-0.5"
-                              style={{ fontFamily: f.value }}
-                            >
-                              {f.sample}
-                            </div>
-                          </div>
-                          {isActive && <Check size={12} className="text-blue-600 dark:text-blue-400 shrink-0" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </ToolbarGroup>
-
-            <ToolbarGroup label="帮助" alignRight>
-              <ToolbarItem icon={<HelpCircle size={16} />} label="快捷键指南" onClick={() => setShowHelpModal(true)} />
-              <ToolbarItem icon={<ShieldCheckIcon size={16} />} label="隐私说明" onClick={() => setShowPrivacyModal(true)} />
-              <ToolbarItem icon={<HeartIcon size={16} className="text-rose-500" />} label="赏赞支持" onClick={() => setShowSponsorModal(true)} />
-            </ToolbarGroup>
-          </nav>
-        </div>
-
-        <div className="flex items-center gap-2 sm:gap-4 shrink-0">
-          <div className="flex bg-[var(--bg-secondary)] p-1 rounded-lg border border-[var(--border)] gap-0.5 shrink-0">
-            {THEME_OPTIONS.map((t) => (
-              <ThemeButton 
-                key={t.id} 
-                active={theme === t.id} 
-                icon={t.icon} 
-                onClick={() => setTheme(t.id)} 
-                title={`切换主题: ${t.name}`} 
-              />
-            ))}
-          </div>
-
-          <div className="h-6 w-px bg-[var(--border)] shrink-0" />
-
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <button
-              onClick={() => setShowSponsorModal(true)}
-              className="h-9 px-2.5 sm:px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-600 transition-all flex items-center gap-1.5 text-xs font-bold shadow-xs active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
-              title="赏赞与支持 FluxMark"
-            >
-              <HeartIcon size={15} className="fill-rose-500 text-rose-500 shrink-0" />
-              <span className="whitespace-nowrap">赏赞支持</span>
-            </button>
-            <div className="h-6 w-px bg-[var(--border)] mx-0.5 shrink-0" />
-            <button 
-              onClick={() => setShowAIChat(!showAIChat)}
-              className={`h-9 px-2.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${showAIChat ? 'bg-[var(--accent)] text-white shadow-md' : 'hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-transparent hover:border-[var(--border)]'}`}
-              title="AI 助手"
-            >
-              <SparklesIcon size={18} className="shrink-0" />
-              {showAIChat && <span className="text-xs font-bold whitespace-nowrap">AI 已开启</span>}
-            </button>
-            <div className="h-6 w-px bg-[var(--border)] mx-0.5 shrink-0" />
-            <button onClick={togglePresentation} title="放映模式" className="h-9 p-2 hover:bg-[var(--bg-secondary)] rounded-lg transition-colors cursor-pointer text-[var(--text-secondary)] shrink-0 flex items-center justify-center">
-              <Monitor size={18} className="shrink-0" />
-            </button>
-            <button 
-              onClick={() => {
-                const input = document.createElement('input');
-                input.type = 'file';
-                input.accept = 'image/*';
-                input.onchange = handleImageUpload as any;
-                input.click();
-              }}
-              title="插入本地图片"
-              className="h-9 px-3 sm:px-3.5 bg-[var(--accent)] text-white rounded-lg flex items-center gap-1.5 hover:opacity-90 transition-opacity text-xs font-bold cursor-pointer whitespace-nowrap shrink-0 shadow-xs"
-            >
-              <ImageIcon size={16} className="shrink-0" />
-              <span className="whitespace-nowrap">插入图片</span>
-            </button>
-            <button 
-              onClick={() => {
-                const input = document.createElement('input');
-                input.type = 'file';
-                input.accept = 'video/*';
-                input.onchange = handleVideoUpload as any;
-                input.click();
-              }}
-              title="插入本地视频"
-              className="h-9 px-3 sm:px-3.5 bg-blue-600 text-white rounded-lg flex items-center gap-1.5 hover:opacity-90 transition-opacity text-xs font-bold cursor-pointer shadow-xs whitespace-nowrap shrink-0"
-            >
-              <VideoIcon size={16} className="shrink-0" />
-              <span className="whitespace-nowrap">插入视频</span>
-            </button>
-          </div>
-        </div>
-      </header>
 
       {/* --- Main Content --- */}
-      <main className="flex-1 flex overflow-hidden relative">
-        {/* Outline Sidebar */}
+      {showPresentationPreview && <PresentationPreview slides={slides} onClose={()=>setShowPresentationPreview(false)} onJump={jumpToPresentationSource} onStart={()=>{setShowPresentationPreview(false);togglePresentation();}}/>}
+      <main className="workspace-body flex-1 flex overflow-hidden relative">
+        {!isPresentation && <nav className="workspace-ribbon" aria-label="工作区导航">
+          <button type="button" title="文件" aria-label="文件浏览器" aria-pressed={showSidebar && activeSidebarTab === 'resources'} onClick={() => { setActiveSidebarTab('resources'); setShowSidebar(true); }}><Files size={18} /></button>
+          <button type="button" title="大纲" aria-label="文档大纲" aria-pressed={showSidebar && activeSidebarTab === 'outline'} onClick={() => { setActiveSidebarTab('outline'); setShowSidebar(true); }}><ListTree size={18} /></button>
+          <button type="button" title="反向链接" aria-label="反向链接" aria-pressed={showSidebar && activeSidebarTab === 'backlinks'} onClick={() => { setActiveSidebarTab('backlinks'); setShowSidebar(true); }}><Link2 size={18} /></button>
+          <button type="button" title="知识星图" aria-label="知识星图" aria-pressed={showGraph} onClick={() => {
+            if (!showGraph && window.innerWidth <= 640) setShowSidebar(false);
+            setShowGraph(!showGraph);
+          }}><Network size={18} /></button>
+          <div className="ribbon-divider" aria-hidden="true" />
+          <div className="ribbon-tools" role="group" aria-label="工作区工具">
+            <button type="button" onClick={() => setShowSponsorModal(true)} aria-label="支持作者" title="支持作者"><HeartIcon size={17} /></button>
+            <WorkspaceTools commands={[{label:'新建文档',run:createNewFile},{label:'打开文件',run:openAppFile},{label:'保存文档',run:saveFile},{label:'导出 Markdown',run:exportMarkdown},{label:'导出 PDF',run:exportPDF},{label:'导出 Word',run:exportWord},{label:'进入演示',run:togglePresentation},{label:'精选模板',run:()=>setShowTemplateModal(true)},{label:'AI 助手',run:()=>setShowAIChat(true)}]} editor={editor} name={docName} documentId={documentId.current} onRestore={restoreDraft}/>
+            <button type="button" onClick={() => setSettingsOpen(true)} aria-label="外观与设置" title="外观与设置"><Settings2 size={17} /></button>
+          </div>
+        </nav>}
         <AnimatePresence>
           {showSidebar && (
-            <motion.aside
+            <motion.aside data-workspace-sidebar
               initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 280, opacity: 1 }}
+              animate={{ width: 248, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
               className="border-r border-[var(--border)] bg-[var(--bg-secondary)] overflow-hidden flex flex-col z-30 shrink-0"
             >
-              <div className="w-[280px] shrink-0 flex flex-col h-full overflow-hidden">
-              <div className="flex border-b border-[var(--border)]">
-                <button 
-                  onClick={() => setActiveSidebarTab('outline')}
-                  className={`flex-1 py-3 text-xs font-bold transition-all ${activeSidebarTab === 'outline' ? 'bg-[var(--bg-primary)] text-[var(--accent)] border-b-2 border-[var(--accent)]' : 'text-[var(--text-secondary)] hover:bg-slate-50'}`}
-                >
-                  大纲 
-                </button>
-                <button 
-                  onClick={() => setActiveSidebarTab('resources')}
-                  className={`flex-1 py-3 text-xs font-bold transition-all ${activeSidebarTab === 'resources' ? 'bg-[var(--bg-primary)] text-[var(--accent)] border-b-2 border-[var(--accent)]' : 'text-[var(--text-secondary)] hover:bg-slate-50'}`}
-                >
-                  资源管理
-                </button>
-              </div>
+              <div className="w-[248px] shrink-0 flex flex-col h-full overflow-hidden">
+              <div className="workspace-pane-title">{activeSidebarTab === 'resources' ? '文件浏览器' : activeSidebarTab === 'outline' ? '文档大纲' : '反向链接'}</div>
 
               <div className="flex-1 overflow-hidden flex flex-col">
-                {activeSidebarTab === 'outline' ? (
+                {activeSidebarTab === 'outline' && (
                   <div className="flex flex-col h-full overflow-hidden">
                     {/* Outline Toolbar */}
                     {outline.length > 0 && (
-                      <div className="px-3 py-2 border-b border-[var(--border)] flex items-center justify-between bg-[var(--bg-primary)]/50 shrink-0 select-none">
+                      <div className="outline-controls px-3 py-2 border-b border-[var(--border)] flex items-center justify-between bg-[var(--bg-primary)]/50 shrink-0 select-none">
                         <div className="flex items-center gap-1.5 text-[11px] font-bold text-[var(--text-secondary)]">
                           <span>共 {outline.length} 个章节</span>
                           {selectedLevelFilter !== null && (
@@ -3235,534 +2722,105 @@ export default function App() {
                       )}
                     </div>
 
-                    {/* Document Heading Distribution Statistics Chart Component */}
-                    <DocumentOutlineStats 
-                      outline={outline}
-                      selectedLevelFilter={selectedLevelFilter}
-                      onSelectLevelFilter={setSelectedLevelFilter}
-                      onScrollToHeading={(pos, id) => {
-                        scrollToHeading(pos);
-                        setActiveHeadingId(id);
-                      }}
-                    />
-                  </div>
-                ) : (
-                  <div className="p-3 space-y-3">
-                    {/* Workspace Folder Header Card */}
-                    <div className="p-3 bg-[var(--bg-primary)] rounded-xl border border-[var(--border)] shadow-xs space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="p-1.5 bg-amber-500/10 text-amber-500 rounded-lg shrink-0">
-                            <Folder size={16} />
-                          </div>
-                          <div className="min-w-0">
-                            <h4 className="text-xs font-bold truncate text-[var(--text-primary)]">
-                              {currentDirectoryName || '工作区资源管理器'}
-                            </h4>
-                            <p className="text-[10px] text-[var(--text-secondary)]">
-                              {resources.length > 0
-                                ? `${resources.length} 项资源 • ${resources.filter(r => r.type === 'file').length} 篇文档 • ${resources.filter(r => r.type === 'image').length} 张图片`
-                                : '未打开文件夹或零文件'}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            onClick={() => setShowNewFileModal(true)}
-                            title="在当前文件夹新建并保存文档"
-                            className="p-1.5 hover:bg-[var(--bg-secondary)] rounded-lg text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors cursor-pointer"
-                          >
-                            <FilePlus size={15} />
-                          </button>
-                          {currentDirectoryHandle && (
-                            <button
-                              onClick={refreshDirectory}
-                              title="重新扫描刷新工作区"
-                              className="p-1.5 hover:bg-[var(--bg-secondary)] rounded-lg text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors cursor-pointer"
-                            >
-                              <RefreshCcw size={15} />
-                            </button>
-                          )}
-                          <button
-                            onClick={openDirectory}
-                            title="打开本地文件夹"
-                            className="p-1.5 hover:bg-[var(--bg-secondary)] rounded-lg text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors cursor-pointer"
-                          >
-                            <FolderOpen size={15} />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Quick Action bar: New file button inside workspace */}
-                      <div className="pt-1 flex gap-2">
-                        <button
-                          onClick={() => setShowNewFileModal(true)}
-                          className="flex-1 py-1.5 px-2.5 bg-[var(--accent)] text-white text-xs font-bold rounded-lg shadow-2xs hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                        >
-                          <FilePlus size={13} />
-                          <span>新建保存文档</span>
-                        </button>
-                        <button
-                          onClick={openDirectory}
-                          className="py-1.5 px-2.5 bg-[var(--bg-secondary)] hover:bg-[var(--border)] text-[var(--text-primary)] text-xs font-medium rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer border border-[var(--border)]"
-                        >
-                          <Folder size={13} className="text-amber-500" />
-                          <span>更换文件夹</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Search & Filter Bar */}
-                    {resources.length > 0 && (
-                      <div className="space-y-2">
-                        {/* Search Input */}
-                        <div className="relative">
-                          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
-                          <input
-                            type="text"
-                            value={resourceSearch}
-                            onChange={(e) => setResourceSearch(e.target.value)}
-                            placeholder="搜索工作区中的文件..."
-                            className="w-full pl-8 pr-7 py-1.5 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-all placeholder-[var(--text-secondary)]"
-                          />
-                          {resourceSearch && (
-                            <button
-                              onClick={() => setResourceSearch('')}
-                              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                            >
-                              ×
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Filter Pills */}
-                        <div className="flex items-center gap-1 p-0.5 bg-[var(--bg-secondary)] rounded-lg text-[11px] font-medium border border-[var(--border)]">
-                          <button
-                            onClick={() => setResourceFilter('all')}
-                            className={`flex-1 py-1 rounded-md transition-all text-center cursor-pointer ${
-                              resourceFilter === 'all'
-                                ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] font-bold shadow-2xs'
-                                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                            }`}
-                          >
-                            全部 ({resources.length})
-                          </button>
-                          <button
-                            onClick={() => setResourceFilter('file')}
-                            className={`flex-1 py-1 rounded-md transition-all text-center cursor-pointer ${
-                              resourceFilter === 'file'
-                                ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] font-bold shadow-2xs'
-                                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                            }`}
-                          >
-                            📄 文档 ({resources.filter(r => r.type === 'file').length})
-                          </button>
-                          <button
-                            onClick={() => setResourceFilter('image')}
-                            className={`flex-1 py-1 rounded-md transition-all text-center cursor-pointer ${
-                              resourceFilter === 'image'
-                                ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] font-bold shadow-2xs'
-                                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                            }`}
-                          >
-                            🎬 媒体 ({resources.filter(r => r.type === 'image' || (r.type as string) === 'video').length})
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Resources List */}
-                    <div className="space-y-1 max-h-[58vh] overflow-y-auto pr-1 custom-scrollbar">
-                      {/* Active open file card */}
-                      <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-between text-xs font-semibold text-[var(--accent)] mb-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <FileText size={15} className="shrink-0 text-blue-500" />
-                          <span className="truncate">{docName}</span>
-                        </div>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500 text-white font-mono shrink-0">
-                          当前编辑
-                        </span>
-                      </div>
-
-                      {/* Filtered local resources */}
-                      {(() => {
-                        const filtered = resources.filter(res => {
-                          if (resourceSearch.trim()) {
-                            const query = resourceSearch.toLowerCase();
-                            const matchesName = res.name.toLowerCase().includes(query) || res.relativePath.toLowerCase().includes(query);
-                            if (!matchesName) return false;
-                          }
-                          if (resourceFilter === 'file') return res.type === 'file';
-                          if (resourceFilter === 'image') return res.type === 'image' || (res.type as string) === 'video';
-                          return true;
-                        });
-
-                        if (filtered.length === 0) {
-                          return (
-                            <div className="p-6 text-center text-xs text-[var(--text-secondary)] bg-[var(--bg-secondary)]/50 rounded-xl border border-dashed border-[var(--border)] space-y-2">
-                              <p>尚未加载或未匹配到相关文件</p>
-                              <div className="flex justify-center gap-2">
-                                <button
-                                  onClick={() => setShowNewFileModal(true)}
-                                  className="px-2.5 py-1 text-[11px] bg-[var(--accent)] text-white rounded-lg hover:opacity-90 transition-all font-medium cursor-pointer"
-                                >
-                                  + 新建 Markdown
-                                </button>
-                                <button
-                                  onClick={openDirectory}
-                                  className="px-2.5 py-1 text-[11px] bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-secondary)] transition-all font-medium cursor-pointer"
-                                >
-                                  📂 打开本地文件夹
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        }
-
-                        return filtered.map((res, i) => {
-                          const isCurrentActive = res.name === docName;
-
-                          if (res.type === 'video') {
-                            const videoSrc = res.relativePath || res.url || (res.file ? URL.createObjectURL(res.file) : '');
-                            return (
-                              <div
-                                key={i}
-                                className="group relative p-2 rounded-xl border border-[var(--border)] hover:border-[var(--accent)]/50 hover:bg-[var(--bg-secondary)] transition-all flex items-center justify-between gap-2"
-                              >
-                                <div
-                                  onClick={() => {
-                                    if (videoSrc && editor) {
-                                      editor.chain().focus().setVideo({ src: videoSrc }).run();
-                                      showToast(`已插入视频 ${res.name} 到光标处`);
-                                    }
-                                  }}
-                                  className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer"
-                                >
-                                  <div className="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-500 flex items-center justify-center shrink-0">
-                                    <VideoIcon size={16} />
-                                  </div>
-                                  <div className="min-w-0 flex-1">
-                                    <p className="text-xs font-semibold truncate text-[var(--text-primary)] group-hover:text-[var(--accent)]">
-                                      {res.name}
-                                    </p>
-                                    <p className="text-[10px] text-[var(--text-secondary)]">
-                                      视频文件 {res.size ? `• ${(res.size / (1024 * 1024)).toFixed(1)} MB` : ''}
-                                    </p>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-1 shrink-0">
-                                  <button
-                                    onClick={() => {
-                                      if (videoSrc && editor) {
-                                        editor.chain().focus().setVideo({ src: videoSrc }).run();
-                                        showToast(`已插入视频 ${res.name} 到光标处`);
-                                      }
-                                    }}
-                                    title="插入到文档"
-                                    className="p-1 bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)] hover:text-white rounded-md transition-colors cursor-pointer"
-                                  >
-                                    <Plus size={14} />
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          if (res.type === 'image') {
-                            return (
-                              <div
-                                key={i}
-                                className="group relative p-2 rounded-xl border border-[var(--border)] hover:border-[var(--accent)]/50 hover:bg-[var(--bg-secondary)] transition-all flex items-center justify-between gap-2"
-                              >
-                                <div
-                                  onClick={() => {
-                                    setPreviewImageInfo({
-                                      url: res.url || (res.file ? URL.createObjectURL(res.file) : ''),
-                                      name: res.name,
-                                      relativePath: res.relativePath,
-                                      size: res.size,
-                                      handle: res.handle,
-                                      file: res.file,
-                                    });
-                                  }}
-                                  className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer"
-                                >
-                                  {res.url ? (
-                                    <div className="w-8 h-8 rounded-lg overflow-hidden bg-black/20 shrink-0 border border-slate-700/20">
-                                      <img src={res.url} alt={res.name} className="w-full h-full object-cover" />
-                                    </div>
-                                  ) : (
-                                    <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-500 flex items-center justify-center shrink-0">
-                                      <ImageIcon size={16} />
-                                    </div>
-                                  )}
-                                  <div className="min-w-0 flex-1">
-                                    <p className="text-xs font-semibold truncate text-[var(--text-primary)] group-hover:text-[var(--accent)]">
-                                      {res.name}
-                                    </p>
-                                    <p className="text-[10px] text-[var(--text-secondary)]">
-                                      图片文件 {res.size ? `• ${(res.size / 1024).toFixed(1)} KB` : ''}
-                                    </p>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-1 shrink-0">
-                                  <button
-                                    onClick={() => {
-                                      setPreviewImageInfo({
-                                        url: res.url || (res.file ? URL.createObjectURL(res.file) : ''),
-                                        name: res.name,
-                                        relativePath: res.relativePath,
-                                        size: res.size,
-                                        handle: res.handle,
-                                        file: res.file,
-                                      });
-                                    }}
-                                    title="预览大图"
-                                    className="p-1 hover:bg-slate-500/10 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
-                                  >
-                                    <Eye size={14} />
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      const targetSrc = res.relativePath || res.url || (res.file ? URL.createObjectURL(res.file) : '');
-                                      if (targetSrc) {
-                                        editor?.chain().focus().setImage({ src: targetSrc, alt: res.name }).run();
-                                        showToast(`已插入图片 ${res.name} 到光标处`);
-                                      }
-                                    }}
-                                    title="插入到文档"
-                                    className="p-1 bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)] hover:text-white rounded-md transition-colors cursor-pointer"
-                                  >
-                                    <Plus size={14} />
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          return (
-                            <button
-                              key={i}
-                              onClick={async () => {
-                                if (res.type === 'file' && res.handle) {
-                                  try {
-                                    let content = '';
-                                    if (res.handle instanceof File) {
-                                      content = await res.handle.text();
-                                      setCurrentFileHandle(null);
-                                      setDocName(res.name);
-                                    } else if (res.handle.getFile) {
-                                      const file = await res.handle.getFile();
-                                      content = await file.text();
-                                      setCurrentFileHandle(res.handle);
-                                      setDocName(res.name);
-                                    }
-                                    editor?.commands.setContent(content);
-                                    showToast(`已加载文档 ${res.name}`);
-                                  } catch (err) {
-                                    console.error('Failed to read file:', err);
-                                    showToast('无法读取该文件，请确保拥有授权');
-                                  }
-                                }
-                              }}
-                              className={`w-full p-2 rounded-xl text-left border transition-all flex items-center justify-between gap-2 cursor-pointer ${
-                                isCurrentActive
-                                  ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800 text-[var(--accent)]'
-                                  : 'border-transparent hover:border-[var(--border)] hover:bg-[var(--bg-secondary)] text-[var(--text-primary)]'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2.5 min-w-0">
-                                {res.type === 'folder' ? (
-                                  <Folder size={16} className="text-amber-500 shrink-0" />
-                                ) : (
-                                  <FileText size={16} className="text-blue-500 shrink-0" />
-                                )}
-                                <div className="min-w-0">
-                                  <p className="text-xs font-medium truncate">{res.name}</p>
-                                  {res.relativePath && res.relativePath !== res.name && (
-                                    <p className="text-[10px] text-[var(--text-secondary)] truncate">
-                                      {res.relativePath}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                              {isCurrentActive && (
-                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
-                              )}
-                            </button>
-                          );
-                        });
-                      })()}
-                    </div>
                   </div>
                 )}
+                {activeSidebarTab === 'backlinks' && <section className="backlink-panel" aria-label="文档链接">
+                  <h3>链接到本文 <span>{backlinks.length}</span></h3>
+                  {indexingWiki && <p role="status">正在读取本地文档…</p>}
+                  {!backlinks.length && !indexingWiki && <p>暂无反向链接</p>}
+                  {backlinks.map(note => <button type="button" key={note.id} title={note.path} onClick={() => void openWikiNote(note)}><FileText size={15} /><span>{note.title}</span></button>)}
+                  <h3>本文链接 <span>{currentWikiTargets.length}</span></h3>
+                  {!currentWikiTargets.length && <p>输入 [[文档名]] 创建链接。</p>}
+                  {currentWikiTargets.map(target => {
+                    const matches = wikiMatches(wikiNotes, target, currentWikiPath);
+                    return <button type="button" key={target} title={target} onClick={() => followWikiLink(target)}>
+                      <Link2 size={15} /><span>{target}</span>{matches.length !== 1 && <small>{matches.length ? '同名' : '待链接'}</small>}
+                    </button>;
+                  })}
+                </section>}
+                <div className={activeSidebarTab === 'resources' ? 'flex flex-1 min-h-0' : 'hidden'}>
+                  <ResourceTree key={resourceTreeVersion} resources={resources} directoryName={currentDirectoryName}
+                    activeId={activeResourceId} onOpenDirectory={openDirectory}
+                    documentName={docName} documentId={documentId.current} onRestore={restoreDraft} onOpenFile={openAppFile}
+                    onRefresh={currentDirectoryHandle ? refreshDirectory : undefined}
+                    onNew={currentDirectoryHandle ? () => setShowNewFileModal(true) : createNewFile}
+                    onSelect={selectResource} onInsertMedia={insertResourceMedia} />
+                </div>
               </div>
               </div>
             </motion.aside>
           )}
         </AnimatePresence>
 
+        {showGraph && !isPresentation && <KnowledgeGraph notes={wikiNotes} edges={wikiEdges} currentId={currentWikiId}
+          loading={indexingWiki} onOpen={note => void openWikiNote(note)} onClose={() => setShowGraph(false)} />}
         <div 
-          className={`flex-1 overflow-y-auto no-scrollbar scroll-smooth transition-all duration-300 ${isPresentation ? "fixed inset-0 w-screen h-screen z-[1000] flex flex-col overflow-hidden text-slate-100" : "bg-[var(--bg-secondary)]"}`} 
+          className={`min-w-0 flex-1 ${isPresentation ? "fixed inset-0 z-[1000] flex flex-col overflow-hidden text-slate-100" : showGraph ? "hidden" : "overflow-y-auto no-scrollbar scroll-smooth bg-[var(--bg-secondary)]"}`}
           id="editor-viewport"
           style={isPresentation ? getPresBgStyle(presBgConfig) : undefined}
+          onClick={event => {
+            if (isPresentation || !(event.target instanceof Element)) return;
+            const link = event.target.closest<HTMLElement>('.tiptap [data-wiki-target]');
+            if (link?.dataset.wikiTarget) followWikiLink(link.dataset.wikiTarget);
+          }}
+          onKeyDown={event => {
+            if (isPresentation || event.key !== 'Enter' || !(event.target instanceof HTMLElement)) return;
+            if (event.target.dataset.wikiTarget) {
+              event.preventDefault();
+              followWikiLink(event.target.dataset.wikiTarget);
+            }
+          }}
         >
           {isPresentation ? (
             <div 
-              className="w-full h-full flex flex-col overflow-hidden text-slate-100 relative"
+              className="presentation-stage w-full h-full flex flex-col overflow-hidden text-slate-100 relative"
               style={getPresBgStyle(presBgConfig)}
             >
               {/* Presentation Background Pattern / Mesh Overlay */}
               {renderPresPatternOverlay(presBgConfig)}
 
-              {/* PPT Top Header Bar (Compact height) */}
-              <div className="h-12 w-full flex justify-between items-center px-4 md:px-6 border-b border-slate-800/80 z-[1010] bg-slate-900/95 backdrop-blur-md shrink-0 text-xs">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                    <span className="text-[11px] font-bold text-white uppercase tracking-wider">PPT 放映</span>
-                  </div>
-
-                  <div className="h-3.5 w-px bg-slate-800 my-auto" />
-
-                  <button
-                    onClick={() => {
-                      clearCanvas();
-                      showToast('已一键清空屏幕标注');
-                    }}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800/90 hover:bg-red-500/20 text-slate-300 hover:text-red-400 border border-slate-700/80 transition-all text-[11px] font-medium cursor-pointer"
-                    title="一键清空屏幕上的画笔与标注"
-                  >
-                    <Trash2 size={13} className="text-red-400" />
-                    <span>清屏</span>
-                  </button>
-
-                  <button
-                    onClick={() => setShowPresBgModal(true)}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800/90 hover:bg-indigo-600/30 text-slate-300 hover:text-indigo-300 border border-slate-700/80 hover:border-indigo-500/50 transition-all text-[11px] font-medium cursor-pointer"
-                    title="自定义或切换 PPT 放映背景渐变与科技纹理"
-                  >
-                    <Palette size={13} className="text-indigo-400" />
-                    <span>背景纹理</span>
-                  </button>
-
-                  <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800/90 border border-slate-700/80 text-[11px] text-slate-300 font-medium">
-                    <Zap size={13} className="text-amber-400" />
-                    <select
-                      value={presBgConfig.transitionType || 'slide-x'}
-                      onChange={(e) => {
-                        const newType = e.target.value as any;
-                        setPresBgConfig(prev => {
-                          const updated = { ...prev, transitionType: newType };
-                          try { localStorage.setItem('fluxmark_pres_bg', JSON.stringify(updated)); } catch {}
-                          return updated;
-                        });
-                      }}
-                      className="bg-transparent border-0 text-[11px] font-medium text-slate-200 focus:outline-hidden cursor-pointer"
-                      title="选择幻灯片切换过渡动画"
-                    >
-                      <option value="slide-x" className="bg-slate-900 text-white">切换: 横向滑动</option>
-                      <option value="fade" className="bg-slate-900 text-white">切换: 柔和淡入</option>
-                      <option value="slide-y" className="bg-slate-900 text-white">切换: 纵向推移</option>
-                      <option value="zoom" className="bg-slate-900 text-white">切换: 3D 缩放</option>
-                      <option value="flip" className="bg-slate-900 text-white">切换: 视效翻转</option>
-                    </select>
-                  </div>
-
-                  <div className="h-3.5 w-px bg-slate-800 my-auto" />
-
-                  <button
-                    disabled={!canPresUndo}
-                    onClick={handlePresUndo}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800/90 hover:bg-slate-700/80 text-slate-300 hover:text-white border border-slate-700/80 transition-all text-[11px] font-medium cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                    title="撤销操作 (Ctrl+Z)"
-                  >
-                    <Undo size={13} />
-                    <span>撤销</span>
-                  </button>
-
-                  <button
-                    disabled={!canPresRedo}
-                    onClick={handlePresRedo}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800/90 hover:bg-slate-700/80 text-slate-300 hover:text-white border border-slate-700/80 transition-all text-[11px] font-medium cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                    title="重做操作 (Ctrl+Y)"
-                  >
-                    <Redo size={13} />
-                    <span>重做</span>
-                  </button>
-                </div>
-
-                {/* Slide Navigation Controls */}
-                <div className="flex items-center gap-2">
-                  <button
-                    disabled={validSlideIndex === 0}
-                    onClick={() => changeSlideIndex(prev => Math.max(0, prev - 1))}
-                    className="px-2.5 py-1 rounded-lg bg-slate-800/90 hover:bg-blue-600 text-slate-200 hover:text-white transition-all disabled:opacity-30 disabled:hover:bg-slate-800 disabled:hover:text-slate-200 cursor-pointer flex items-center gap-1 font-medium text-[11px] border border-slate-700/80"
-                  >
-                    <ChevronLeft size={14} />
-                    上一页
-                  </button>
-
-                  <div className="px-3 py-1 bg-slate-800/90 rounded-lg border border-slate-700/80 text-[11px] font-mono font-bold text-blue-400 flex items-center gap-1">
-                    <span>{validSlideIndex + 1}</span>
-                    <span className="text-slate-500">/</span>
-                    <span>{slides.length}</span>
-                  </div>
-
-                  <button
-                    disabled={validSlideIndex >= slides.length - 1}
-                    onClick={() => changeSlideIndex(prev => Math.min(slides.length - 1, prev + 1))}
-                    className="px-2.5 py-1 rounded-lg bg-slate-800/90 hover:bg-blue-600 text-slate-200 hover:text-white transition-all disabled:opacity-30 disabled:hover:bg-slate-800 disabled:hover:text-slate-200 cursor-pointer flex items-center gap-1 font-medium text-[11px] border border-slate-700/80"
-                  >
-                    下一页
-                    <ChevronRight size={14} />
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={togglePresentation} 
-                    className="flex items-center gap-1.5 px-3 py-1 bg-red-500 hover:bg-red-600 text-white font-bold rounded-lg transition-all cursor-pointer text-[11px] shadow-md shadow-red-500/20 active:scale-95"
-                  >
-                    <Maximize2 size={13} className="rotate-45" />
-                    退出放映
-                  </button>
-                </div>
-              </div>
-
+              <PresentationControls fit={fitSlides} onFit={()=>setFitSlides(v=>!v)} slides={slides} index={validSlideIndex} name={docName} tool={presentTool} editing={slideEditing}
+                onSlide={changeSlideIndex} onTool={t=>{setPresentTool(t);setSlideEditing(false);}} onEdit={()=>{setSlideEditing(v=>!v);setPresentTool('select');}}
+                onExit={togglePresentation} onClear={clearCanvas} onTimer={()=>setShowCountdownModal(true)} onBackground={()=>setShowPresBgModal(true)} onPicker={()=>setShowStudentPickerModal(true)}
+                onColor={c=>{setPresentColor(c);setPresentTool('pen');}} onSize={setPresentSize} onAdd={handleAddSlideInPresentation}
+                onDelete={()=>setConfirmModal({isOpen:true,title:'删除当前幻灯片？',message:'删除前会保留草稿恢复点。',onConfirm:async()=>{try{await storeDraft(documentId.current,docName,editor?.getHTML()||'');handleDeleteSlideInPresentation();}catch{showToast('无法创建恢复点，请先保存文档');}}})}/>
               {/* Slide Content Viewport (Static Fixed Full-Screen White Card) */}
               <div className="flex-1 w-full h-[calc(100vh-3rem)] min-h-0 p-3 sm:p-4 md:p-6 relative flex flex-col overflow-hidden">
                 {/* Fixed Full-Screen White Rounded Rectangle Container */}
-                <div className="w-full h-full min-h-0 flex-1 bg-[var(--bg-primary)] text-[var(--text-primary)] rounded-2xl md:rounded-3xl p-6 md:p-12 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.5)] border border-slate-700/50 flex flex-col overflow-hidden relative select-text">
-                  <AnimatePresence mode="wait" custom={slideDirection}>
+                <div data-fit={fitSlides} className="presentation-slide w-full min-h-0 flex-[1_1_0%] bg-[var(--bg-primary)] text-[var(--text-primary)] rounded-2xl md:rounded-3xl p-6 md:p-12 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.5)] border border-slate-700/50 flex flex-col overflow-hidden relative select-text">
+                  <AnimatePresence key={fitSlides ? 'fit' : 'read'} mode="wait" custom={slideDirection} initial={!fitSlides}>
                     <motion.div
-                      key={validSlideIndex}
+                      key={fitSlides ? 'fit' : validSlideIndex}
                       custom={slideDirection}
-                      variants={getSlideTransitionVariants(presBgConfig.transitionType || 'slide-x', slideDirection)}
-                      initial="initial"
+                      variants={getSlideTransitionVariants(fitSlides ? 'none' : presBgConfig.transitionType || 'slide-x', slideDirection)}
+                      initial={fitSlides ? false : 'initial'}
                       animate="animate"
                       exit="exit"
                       transition={{ duration: 0.25, ease: [0.25, 1, 0.5, 1] }}
-                      className="w-full h-full flex-1 flex flex-col justify-start overflow-y-auto slide-density-normal"
+                      ref={observeSlideViewport}
+                      data-touch-zoom={canPinchSlide}
+                      className="presentation-scroll w-full min-h-0 flex-1 overflow-auto"
                     >
                       {/* Active Editable Slide Content */}
-                      <EditorContent editor={slideEditor} className="w-full min-h-full flex flex-col" />
+                      <div className="presentation-flow" data-layout={slideLayout}>
+                        {slideLayout === 'empty' && <p className="presentation-empty">此页暂无内容</p>}
+                        <EditorContent editor={slideEditor} className="presentation-content" data-markdown-skin={markdownSkin} />
+                      </div>
                     </motion.div>
                   </AnimatePresence>
+                  {slideOverflow && <span className="presentation-scroll-hint">向下滚动查看更多</span>}
                 </div>
 
                 {/* Bottom Keyboard Shortcut Hint */}
-                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-1.5 bg-slate-800/90 backdrop-blur-md rounded-full border border-slate-700/80 text-[11px] text-slate-400 pointer-events-none z-10 shadow-lg">
+                <div className="presentation-shortcuts absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-1.5 bg-slate-800/90 backdrop-blur-md rounded-full border border-slate-700/80 text-[11px] text-slate-400 pointer-events-none z-10 shadow-lg">
                   <span>键盘方向键 <kbd className="px-1.5 py-0.5 bg-slate-700 rounded text-slate-200 font-mono text-[10px]">←</kbd> <kbd className="px-1.5 py-0.5 bg-slate-700 rounded text-slate-200 font-mono text-[10px]">→</kbd> 或 <kbd className="px-1.5 py-0.5 bg-slate-700 rounded text-slate-200 font-mono text-[10px]">PageUp/PageDown</kbd> 切换幻灯片页（可在放映中直接编辑文本）</span>
                 </div>
               </div>
             </div>
           ) : (
             <div 
-              className="transition-all duration-300 relative mx-auto w-full max-w-4xl min-h-screen my-10 px-12 py-16 bg-[var(--bg-primary)] shadow-[0_20px_50px_rgba(0,0,0,0.05)] rounded-2xl border border-[var(--border)] group"
+              className="writing-canvas relative mx-auto w-full min-h-full bg-[var(--bg-primary)] group"
+              data-markdown-skin={markdownSkin}
               style={{ zoom: zoom }}
               onClick={(e) => {
                 const target = e.target as HTMLElement;
@@ -3794,7 +2852,14 @@ export default function App() {
                 <EditorContent editor={editor} />
               </div>
 
-              <div className="fixed bottom-16 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-[var(--bg-primary)] p-2 rounded-2xl shadow-2xl border border-[var(--border)] z-30 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 max-w-[95vw] overflow-x-auto no-scrollbar">
+              <div className="editor-commandbar flex items-center gap-2 bg-[var(--bg-primary)] p-2 border border-[var(--border)] overflow-x-auto no-scrollbar">
+                <label className="markdown-skin-picker" data-markdown-skin={markdownSkin} title={MARKDOWN_SKINS.find(skin => skin.id === markdownSkin)?.description}>
+                  <Palette size={15} aria-hidden="true" />
+                  <select aria-label="Markdown 正文皮肤" value={markdownSkin} onChange={event => changeMarkdownSkin(event.target.value)}>
+                    {MARKDOWN_SKINS.map(skin => <option key={skin.id} value={skin.id}>{skin.name}</option>)}
+                  </select>
+                  <ChevronDown size={12} aria-hidden="true" />
+                </label>
                 <QuickTool icon={<Undo size={14}/>} onClick={() => applyStyle('undo')} title="撤销 (Ctrl+Z)" disabled={!editor?.can().undo()} />
                 <QuickTool icon={<Redo size={14}/>} onClick={() => applyStyle('redo')} title="重做 (Ctrl+Y)" disabled={!editor?.can().redo()} />
                 <QuickTool icon={<Wand2 size={14} className="text-indigo-500 hover:rotate-12 transition-transform"/>} onClick={handleSmartFormat} title="一键智能排版 (自动优化中英文空格、消除多余空行与规范标点)" />
@@ -3903,7 +2968,7 @@ export default function App() {
                {/* Annotation Canvas (Middle) - Full screen pointer events */}
                <canvas
                  ref={canvasRef}
-                 style={{ width: '100%', height: '100%' }}
+                 style={{ width: '100%', height: '100%', touchAction: presentTool === 'select' ? 'auto' : 'none' }}
                  className={`fixed inset-0 z-[1005] ${presentTool === 'select' ? 'pointer-events-none' : presentTool === 'laser' ? 'cursor-none' : 'cursor-crosshair'}`}
                  onMouseDown={startDrawing}
                  onMouseMove={draw}
@@ -3995,59 +3060,6 @@ export default function App() {
                   </motion.div>
                )}
 
-               {/* Presentation Sidebar Toolkit (Compact Sleek Floating Bar) */}
-               <div className="pres-toolbar fixed right-3 top-1/2 z-[1020] select-none transition-all">
-                <div className="bg-slate-900/90 backdrop-blur-xl p-1 rounded-xl shadow-xl border border-slate-700/80 flex flex-col gap-0.5 items-center">
-                  <PresToolBtn active={presentTool === 'select'} onClick={() => setPresentTool('select')} icon={<MousePointer2 size={15} />} label="选择编辑" />
-                  <PresToolBtn active={presentTool === 'laser'} onClick={() => setPresentTool('laser')} icon={<Target size={15} className={presentTool === 'laser' ? "text-red-400" : ""} />} label="激光笔" />
-                  <PresToolBtn active={presentTool === 'pen'} onClick={() => setPresentTool('pen')} icon={<Pencil size={15} />} label="画笔工具" />
-                  <PresToolBtn active={presentTool === 'eraser'} onClick={() => setPresentTool('eraser')} icon={<Eraser size={15} />} label="橡皮擦" />
-                  
-                  <div className="w-4 h-px bg-slate-800/80 my-0.25" />
-                  
-                  <PresToolBtn active={false} onClick={handlePresUndo} disabled={!canPresUndo} icon={<Undo size={15} />} label="撤销编辑 (Ctrl+Z)" />
-                  <PresToolBtn active={false} onClick={handlePresRedo} disabled={!canPresRedo} icon={<Redo size={15} />} label="重做编辑 (Ctrl+Y)" />
-                  
-                  <div className="w-4 h-px bg-slate-800/80 my-0.25" />
-                  
-                  <div className="flex flex-col gap-0.5 items-center py-0.25">
-                    {[3, 6, 12].map(size => (
-                      <button key={size} onClick={() => setPresentSize(size)} className={`w-4 h-4 rounded-sm border transition-all flex items-center justify-center cursor-pointer ${presentSize === size ? 'bg-blue-500/20 border-blue-400 text-blue-400' : 'bg-slate-800/80 border-slate-700/80 text-slate-400 hover:text-slate-200'}`} title={`笔触大小: ${size}px`}>
-                        <div className="bg-current rounded-full" style={{ width: Math.min(size, 7), height: Math.min(size, 7) }} />
-                      </button>
-                    ))}
-                  </div>
-                  
-                  <div className="w-4 h-px bg-slate-800/80 my-0.25" />
-                  
-                  <div className="flex flex-col gap-0.5 items-center py-0.25">
-                    {['#ef4444', '#22c55e', '#3b82f6', '#1e293b'].map(color => (
-                      <button key={color} onClick={() => { setPresentColor(color); setPresentTool('pen'); }} className={`w-3 h-3 rounded-full border transition-transform hover:scale-125 cursor-pointer ${presentColor === color ? 'border-white ring-1 ring-blue-500/80 scale-110' : 'border-slate-700/80'}`} style={{ backgroundColor: color }} title={`画笔颜色: ${color}`} />
-                    ))}
-                  </div>
-                  
-                  <div className="w-4 h-px bg-slate-800/80 my-0.25" />
-                  
-                  <PresToolBtn active={showCountdownModal} onClick={() => setShowCountdownModal(true)} icon={<Timer size={15} />} label="设置倒计时" />
-                  {!isCountdownMode && <PresToolBtn active={showTimer} onClick={() => setShowTimer(!showTimer)} icon={<Timer size={15} className="opacity-50" />} label="显示时长" />}
-                  <PresToolBtn active={showStudentPickerModal} onClick={() => setShowStudentPickerModal(true)} icon={<UserCheck size={15} className="text-amber-400" />} label="随机点名 (转盘)" />
-                  <PresToolBtn 
-                    active={showPresBgModal} 
-                    onClick={() => setShowPresBgModal(true)} 
-                    icon={<Palette size={15} className="text-indigo-400" />} 
-                    label="背景与纹理" 
-                  />
-                  <PresToolBtn 
-                    active={false} 
-                    onClick={() => {
-                      clearCanvas();
-                      showToast('已一键清空屏幕标注');
-                    }} 
-                    icon={<Trash2 size={15} className="text-red-400 hover:text-red-300" />} 
-                    label="一键清屏" 
-                  />
-                </div>
-               </div>
              </>
           )}
         </div>
@@ -4070,9 +3082,9 @@ export default function App() {
         <footer className="h-10 px-6 bg-[var(--bg-primary)] border-t border-[var(--border)] flex items-center justify-between z-40 text-xs shrink-0 select-none shadow-xs">
           {/* Left Metadata Status */}
           <div className="flex items-center gap-4 text-[var(--text-secondary)]">
-            <div className="flex items-center gap-1.5" title="文档更改已本地实时保存">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="font-medium text-[11px]">已实时保存</span>
+            <div className="flex items-center gap-1.5" title="草稿缓存在此浏览器中；使用文件 → 保存写入本地文件">
+              <span className="w-2 h-2 rounded-full bg-[var(--text-secondary)]" />
+              <span className="font-medium text-[11px]">{saveState}</span>
             </div>
             <span className="text-[var(--border)]">|</span>
             <div className="flex items-center gap-1 text-[11px]">
@@ -4576,6 +3588,7 @@ export default function App() {
         onClose={() => setIsPdfModalOpen(false)}
         onExportPDF={executeExportPDF}
         onExportImage={executeExportImage}
+        onPreview={previewExport}
         docName={docName}
         wordCount={editor?.storage.characterCount?.words() || editor?.getText().length || 0}
         currentThemeName={THEME_OPTIONS.find(t => t.id === theme)?.name || '默认简约'}
@@ -4946,154 +3959,23 @@ function PresToolBtn({ active, icon, onClick, label, disabled }: { active: boole
 }
 
 // --- 初始示例模板内容 ---
-const initialMarkdown = `
-# 🌟 欢迎使用 FluxMark 智能文档与演示平台
+const initialMarkdown = `# 欢迎使用 FluxMark
 
-FluxMark 是一款专注于**极致创作体验**与**高效演示**的现代 Markdown 编辑器。它完美融合了**沉浸式写作**、**本地文件夹深度同步**、**多媒体拖拽插入**、**一键中英文智能排版**、**KaTeX 科学公式**、**AI 智能助手**以及**全屏 PPT 演示放映**等核心功能。
-
-> 💡 **设计理念**：让思想自由流淌，让表达精美非凡。无论是撰写技术文档、学术论文、会议纪要，还是现场演讲汇报，FluxMark 都能为您提供无缝且优雅的操作体验。
+在这里写 Markdown。打开左侧「模板」，可以找到完整功能指南。
 
 ---
 
-## 🎯 快速上手体验清单 (Task List)
+# 写作与整理
 
-您可以直接在下方**点击复选框**开启或完成任务：
-
-- [x] **开启 FluxMark 视界**：感受无缝即时渲染与高颜值 Typography 字体排版
-- [x] **体验丰富文本修饰**：选中文字后试试 **加粗**、*斜体*、==重点行内高亮== 与 ~删除线~
-- [x] **一键智能格式排版**：选中文本在浮动工具栏中点击 ✨ **一键智能排版** 修正中英文空格与盘古排版规范
-- [ ] **体验多媒体拖拽与裁剪**：直接将图片或视频**拖拽/粘贴**入编辑区，选中图片可在线裁剪
-- [ ] **关联本地工作区**：点击顶部 “打开文件夹” 绑定本地目录，媒体将自动存入 \`.med\` 独立文件夹
-- [ ] **探索 KaTeX 科学公式**：体验行内 $e^{i\pi} + 1 = 0$ 与块级微积分方程
-- [ ] **AI 智能助手协作**：点击右上角 AI 图标进行文章润色、段落总结或多语言翻译
-- [ ] **全屏 PPT 演示放映**：按 \`F11\` 或点击顶部放映按钮，即可将包含 \`---\` 的文档直接转为全屏幻灯片展示！
+- 用标题组织结构，在左侧大纲快速跳转。
+- 用 Ctrl + F 查找，用 Ctrl + S 保存。
+- 用独立一行三个短横线划分页。
 
 ---
 
-## ✍️ 文本样式与智能排版演示
+# 开始你的演示
 
-FluxMark 支持丰富的标准及扩展 Markdown 格式，帮助您清晰层级化地表达观点：
+点击「演示」，先检查页数和内容，再开始放映。
 
-### 1. 文本强调与标记
-- **粗体强调**：输入 \`**加粗文本**\` 获得 **强烈的视觉焦点**
-- *斜体排版*：使用 \`*斜体文字*\` 或 \`_斜体强调_\` 表达 *精致的文意倾斜*
-- ***粗斜体组合***：同时触发 \`***粗斜体***\` 呈现 ***强烈瞩目效果***
-- ==重点高亮==：使用 \`==高亮包裹==\` 为关键短语涂上 ==醒目的荧光高亮色==
-- ~删除文本~：使用 \`~删除线~\` 标注 ~废弃或修正内容~
-- **上标与下标**：支持数学上标 $X^2 + Y^2 = Z^2$ 以及化学分子式 $H_2O$ 与 $CO_2$
-
-### 2. 块级引用 (Blockquotes)
-> 🚀 **高效创作金句**：
-> “好的编辑器不应该打断创作逻辑，而应该像延伸的思维神经一样，顺应你的灵感发散与归纳。”
-> 
-> —— *FluxMark 设计团队*
-
----
-
-## 🎬 多媒体与本地资源同步
-
-FluxMark 提供了极其平滑的多媒体与本地文件同步能力：
-
-1. **图片与视频拖拽**：直接将电脑中的图片 (\`.jpg\`, \`.png\`, \`.webp\`) 或视频 (\`.mp4\`, \`.webm\`) 拖入编辑器。
-2. **本地文件夹联动**：绑定工作区目录后，插入的多媒体资源将自动妥善存入当前目录下的 \`.med\` 文件夹中，Markdown 文件将自动建立相对路径连接。
-3. **图片在线裁剪**：点击文档中的图片，选择 “裁剪” 按钮即可调出交互式裁剪模版。
-
----
-
-## 📐 科学计算与数学公式 (KaTeX Engine)
-
-FluxMark 内置了强大的 **KaTeX 数学渲染引擎**，能够秒级渲染专业公式：
-
-1. **行内公式 (Inline Math)**：比如欧拉恒等式 $e^{i\pi} + 1 = 0$，或正态分布概率密度函数 $f(x) = \frac{1}{\sigma \sqrt{2\pi}} e^{-\frac{1}{2}\left(\frac{x-\mu}{\sigma}\right)^2}$。
-2. **块级高阶方程 (Block Math)**：
-
-$$
-\int_{-\infty}^{+\infty} e^{-x^2} dx = \sqrt{\pi}
-$$
-
-$$
-\mathbf{A} \mathbf{x} = \lambda \mathbf{x} \quad \implies \quad \det(\mathbf{A} - \lambda \mathbf{I}) = 0
-$$
-
----
-
-## 💻 多语言代码渲染与工程集成
-
-针对程序员与技术作者，内置语法高亮与一键代码复制功能：
-
-\`\`\`typescript
-// FluxMark 核心架构示例
-interface EditorCapabilities {
-  aiAssistant: boolean;
-  katexEngine: boolean;
-  pptPresentation: boolean;
-  mediaDirectorySync: boolean;
-  theme: 'light' | 'dark' | 'sepia';
-}
-
-class FluxMarkApp {
-  public static init(config: EditorCapabilities): void {
-    console.log('🚀 FluxMark 编辑引擎已就绪，体验流畅创作之旅！');
-  }
-}
-
-// 启动编辑器
-FluxMarkApp.init({
-  aiAssistant: true,
-  katexEngine: true,
-  pptPresentation: true,
-  mediaDirectorySync: true,
-  theme: 'light',
-});
-\`\`\`
-
-\`\`\`python
-# 数据分析与 AI 计算示例
-import numpy as np
-
-def calculate_confidence(scores):
-    weights = np.exp(scores) / np.sum(np.exp(scores), axis=-1, keepdims=True)
-    return np.max(weights, axis=-1)
-
-print("Confidence Scores:", calculate_confidence([2.0, 1.0, 0.1]))
-\`\`\`
-
----
-
-## 📊 结构化数据与表格 (Markdown Tables)
-
-| 功能模块 | 对应快捷键 / 操作入口 | 功能说明 | 推荐度 |
-| :--- | :---: | :--- | :---: |
-| **保存文档** | \`Ctrl + S\` | 实时写入文件或更新本地缓存 | ⭐⭐⭐⭐⭐ |
-| **一键智能排版** | 选区浮动栏 ✨ | 自动规范中英文间距与盘古排版规范 | ⭐⭐⭐⭐⭐ |
-| **全屏 PPT 演示** | \`F11\` / 放映图标 | 瞬间将 Markdown 转为演示幻灯片 | ⭐⭐⭐⭐⭐ |
-| **AI 智能对话** | 右上角 AI 图标 | 提供润色、总结、翻译与续写辅助 | ⭐⭐⭐⭐⭐ |
-| **插入数学公式** | \`KaTeX\` / \`$$\` | 秒级渲染专业排版的数学方程 | ⭐⭐⭐⭐ |
-
----
-
-## 📺 第二页：全屏 PPT 演示放映模式 (Presentation Page 2)
-
-在 Markdown 文档中使用 **三连减号 \`---\`** 即可划定幻灯片分页！
-
-按 \`F11\` 或点击顶部工具栏的 **“放映”** 按钮，系统会自动将文档切分为全屏幻灯片，并开启强大现场互动工具：
-
-- 🖋️ **画笔与荧光笔圈画**：在演示时直接在屏幕上作图标注重点
-- 🧹 **一键橡皮擦与清屏**：轻松抹去批注迹象
-- 🔦 **激光笔聚光焦点**：引导听众视线焦点
-- ⏱️ **会议演讲倒计时**：掌控现场报告节奏
-- 🎯 **随机点名转盘**：课堂与团队会议现场互动神器
-
----
-
-## 💡 常用快捷键速查表 (Quick Shortcuts)
-
-- \`Ctrl + B\`：文本加粗 / \`Ctrl + I\`：文本斜体 / \`Ctrl + Shift + H\`：文本高亮
-- \`Ctrl + Alt + 1\`：一级标题 / \`Ctrl + Shift + 9\`：待办清单
-- \`Ctrl + S\`：保存当前文档 / \`Ctrl + /\`：随时唤起帮助与快捷键中心
-
----
-_FluxMark - 灵感流淌，极致表达。_
+需要分享时，从「导出」选择 Markdown、PDF 或长图。
 `;
-
-

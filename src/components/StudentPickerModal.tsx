@@ -288,7 +288,7 @@ export const StudentPickerModal: React.FC<StudentPickerModalProps> = ({ isOpen, 
                 className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                   soundEnabled 
                     ? 'text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40' 
-                    : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    : 'text-[var(--text-secondary)] hover:bg-slate-200 dark:hover:bg-slate-700'
                 }`}
                 title={soundEnabled ? '音效已开启' : '音效已静音'}
               >
@@ -322,7 +322,7 @@ export const StudentPickerModal: React.FC<StudentPickerModalProps> = ({ isOpen, 
               {/* Close button */}
               <button
                 onClick={onClose}
-                className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-colors cursor-pointer"
+                className="p-1.5 hover:bg-red-50 text-[var(--text-secondary)] hover:text-red-500 rounded-lg transition-colors cursor-pointer"
               >
                 <Maximize2 size={15} className="rotate-45" />
               </button>
@@ -493,7 +493,7 @@ export const StudentPickerModal: React.FC<StudentPickerModalProps> = ({ isOpen, 
                           <div className="flex items-center justify-center gap-2 w-full pt-1">
                             <button
                               onClick={startSpin}
-                              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-[var(--text-primary)] rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                              className="px-4 py-2 bg-[var(--bg-secondary)] hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-[var(--text-primary)] rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
                             >
                               <RotateCcw size={14} />
                               再抽一次
@@ -589,7 +589,7 @@ export const StudentPickerModal: React.FC<StudentPickerModalProps> = ({ isOpen, 
                       <span>{st}</span>
                       <button
                         onClick={() => setStudents(students.filter((_, i) => i !== idx))}
-                        className="text-slate-400 hover:text-red-500 rounded-full p-0.5 transition-colors cursor-pointer"
+                        className="text-[var(--text-secondary)] hover:text-red-500 rounded-full p-0.5 transition-colors cursor-pointer"
                         title="删除该学生"
                       >
                         <Trash2 size={12} />
@@ -597,7 +597,7 @@ export const StudentPickerModal: React.FC<StudentPickerModalProps> = ({ isOpen, 
                     </span>
                   ))}
                   {students.length === 0 && (
-                    <span className="text-xs text-slate-400 italic py-2">暂无学生，请在下方批量粘贴或上方输入添加。</span>
+                    <span className="text-xs text-[var(--text-secondary)] italic py-2">暂无学生，请在下方批量粘贴或上方输入添加。</span>
                   )}
                 </div>
               </div>

@@ -271,7 +271,7 @@ export const ImageCropperModal: React.FC<ImageCropperModalProps> = ({
 
               <button
                 onClick={onClose}
-                className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-colors cursor-pointer"
+                className="p-1.5 hover:bg-red-50 text-[var(--text-secondary)] hover:text-red-500 rounded-lg transition-colors cursor-pointer"
                 title="关闭"
               >
                 <Maximize2 size={15} className="rotate-45" />
@@ -419,7 +419,7 @@ export const ImageCropperModal: React.FC<ImageCropperModalProps> = ({
                   <div className="pt-2 border-t border-[var(--border)]">
                     <button
                       onClick={handleResetCrop}
-                      className="w-full py-2 text-xs font-medium text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="w-full py-2 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] dark:hover:text-slate-200 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <RefreshCw size={13} />
                       重置所有裁剪旋转
@@ -459,7 +459,7 @@ export const ImageCropperModal: React.FC<ImageCropperModalProps> = ({
                           <Sun size={13} className="text-amber-500" />
                           亮度 (Brightness)
                         </span>
-                        <span className="font-mono text-slate-500">{filters.brightness}%</span>
+                        <span className="font-mono text-[var(--text-secondary)]">{filters.brightness}%</span>
                       </div>
                       <input
                         type="range"
@@ -478,7 +478,7 @@ export const ImageCropperModal: React.FC<ImageCropperModalProps> = ({
                           <Sliders size={13} className="text-blue-500" />
                           对比度 (Contrast)
                         </span>
-                        <span className="font-mono text-slate-500">{filters.contrast}%</span>
+                        <span className="font-mono text-[var(--text-secondary)]">{filters.contrast}%</span>
                       </div>
                       <input
                         type="range"
@@ -497,7 +497,7 @@ export const ImageCropperModal: React.FC<ImageCropperModalProps> = ({
                           <Palette size={13} className="text-purple-500" />
                           黑白/灰度 (Grayscale)
                         </span>
-                        <span className="font-mono text-slate-500">{filters.grayscale}%</span>
+                        <span className="font-mono text-[var(--text-secondary)]">{filters.grayscale}%</span>
                       </div>
                       <input
                         type="range"
@@ -516,7 +516,7 @@ export const ImageCropperModal: React.FC<ImageCropperModalProps> = ({
                           <Aperture size={13} className="text-emerald-500" />
                           饱和度 (Saturation)
                         </span>
-                        <span className="font-mono text-slate-500">{filters.saturation}%</span>
+                        <span className="font-mono text-[var(--text-secondary)]">{filters.saturation}%</span>
                       </div>
                       <input
                         type="range"
@@ -535,7 +535,7 @@ export const ImageCropperModal: React.FC<ImageCropperModalProps> = ({
                           <Layers size={13} className="text-orange-500" />
                           怀旧复古 (Sepia)
                         </span>
-                        <span className="font-mono text-slate-500">{filters.sepia}%</span>
+                        <span className="font-mono text-[var(--text-secondary)]">{filters.sepia}%</span>
                       </div>
                       <input
                         type="range"
@@ -554,7 +554,7 @@ export const ImageCropperModal: React.FC<ImageCropperModalProps> = ({
                           <FlipHorizontal size={13} className="text-pink-500" />
                           底片反相 (Invert)
                         </span>
-                        <span className="font-mono text-slate-500">{filters.invert}%</span>
+                        <span className="font-mono text-[var(--text-secondary)]">{filters.invert}%</span>
                       </div>
                       <input
                         type="range"
@@ -570,10 +570,10 @@ export const ImageCropperModal: React.FC<ImageCropperModalProps> = ({
                     <div>
                       <div className="flex justify-between text-xs font-medium text-[var(--text-primary)] mb-0.5">
                         <span className="flex items-center gap-1">
-                          <EyeOff size={13} className="text-slate-400" />
+                          <EyeOff size={13} className="text-[var(--text-secondary)]" />
                           高斯模糊 (Blur)
                         </span>
-                        <span className="font-mono text-slate-500">{filters.blur}px</span>
+                        <span className="font-mono text-[var(--text-secondary)]">{filters.blur}px</span>
                       </div>
                       <input
                         type="range"

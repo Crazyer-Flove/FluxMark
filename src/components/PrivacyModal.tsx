@@ -18,14 +18,14 @@ export const PrivacyModal: React.FC<PrivacyModalProps> = ({ isOpen, onClose }) =
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 15 }}
           transition={{ type: 'spring', duration: 0.3 }}
-          className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl border border-slate-100 overflow-hidden text-slate-800 my-auto"
+          className="bg-[var(--bg-primary)] rounded-3xl w-full max-w-2xl shadow-2xl border border-[var(--border)] overflow-hidden text-[var(--text-primary)] my-auto"
         >
           {/* Header Banner */}
           <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 p-6 text-white relative overflow-hidden">
-            <div className="absolute -right-6 -bottom-6 w-32 h-32 bg-white/10 rounded-full blur-2xl pointer-events-none" />
+            <div className="absolute -right-6 -bottom-6 w-32 h-32 bg-[var(--bg-primary)]/10 rounded-full blur-2xl pointer-events-none" />
             <div className="flex items-center justify-between relative z-10">
               <div className="flex items-center gap-3">
-                <div className="p-3 bg-white/15 backdrop-blur-md rounded-2xl border border-white/20 text-white shadow-inner">
+                <div className="p-3 bg-[var(--bg-primary)]/15 backdrop-blur-md rounded-2xl border border-white/20 text-white shadow-inner">
                   <ShieldCheck size={28} />
                 </div>
                 <div>
@@ -39,7 +39,7 @@ export const PrivacyModal: React.FC<PrivacyModalProps> = ({ isOpen, onClose }) =
               </div>
               <button
                 onClick={onClose}
-                className="p-2 hover:bg-white/20 rounded-full text-white/80 hover:text-white transition-colors cursor-pointer"
+                className="p-2 hover:bg-[var(--bg-primary)]/20 rounded-full text-white/80 hover:text-white transition-colors cursor-pointer"
                 title="关闭"
               >
                 <X size={20} />
@@ -79,49 +79,49 @@ export const PrivacyModal: React.FC<PrivacyModalProps> = ({ isOpen, onClose }) =
             {/* Detailed Policies */}
             <div className="space-y-4 pt-1">
               <div className="border-l-2 border-indigo-500 pl-4 space-y-1">
-                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <h4 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
                   <Lock size={16} className="text-indigo-600" />
                   1. 本地存储与文件读取安全
                 </h4>
-                <p className="text-xs text-slate-600 leading-relaxed">
+                <p className="text-xs text-[var(--text-primary)] leading-relaxed">
                   FluxMark 采用标准 Web File System Access API 与 IndexedDB 本地数据库存储。您通过本地导入或保存的文件，仅在您授权的本机目录中读写，应用程序无权限越权访问您电脑中的其他隐私文件。
                 </p>
               </div>
 
               <div className="border-l-2 border-purple-500 pl-4 space-y-1">
-                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <h4 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
                   <Sparkles size={16} className="text-purple-600" />
                   2. AI 交互与数据传输说明
                 </h4>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  当您使用 AI 文本润色、写作辅助或智能问答时，仅您选择的特定文本片段会通过安全的加密 TLS 渠道提交至大模型 API 接口处理。大模型不会将您的内容用于训练公开模型，对话记录仅存在于当前会话中。
+                <p className="text-xs text-[var(--text-primary)] leading-relaxed">
+                  使用 AI 时，您发送的内容和对话上下文会提交给所配置的模型服务商。数据保留与训练用途取决于该服务商政策。对话记录根据设置保存在会话或本机浏览器中；本地模型的传输方式由您配置的地址决定。
                 </p>
               </div>
 
               <div className="border-l-2 border-cyan-500 pl-4 space-y-1">
-                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <h4 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
                   <EyeOff size={16} className="text-cyan-600" />
                   3. 导出与知识产权归属
                 </h4>
-                <p className="text-xs text-slate-600 leading-relaxed">
+                <p className="text-xs text-[var(--text-primary)] leading-relaxed">
                   您在 FluxMark 中创作、导出的所有 Markdown、Word、PDF、HTML 以及图片长图，知识产权与所有权 100% 完全归属于您个人。导出的文档不带有任何隐形水印或上传记录。
                 </p>
               </div>
             </div>
 
             {/* Security Compliance Badge */}
-            <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl flex items-center justify-between text-xs text-slate-500">
+            <div className="p-3 bg-[var(--bg-secondary)] border border-[var(--border)]/80 rounded-2xl flex items-center justify-between text-xs text-[var(--text-secondary)]">
               <div className="flex items-center gap-2">
                 <CheckCircle2 size={16} className="text-emerald-500" />
-                <span>隐私协议安全状态：<strong className="text-slate-700">已激活并实时保护中</strong></span>
+                <span>隐私协议安全状态：<strong className="text-[var(--text-primary)]">已激活并实时保护中</strong></span>
               </div>
-              <span className="text-[11px] font-mono text-slate-400">v2.5 Local Security</span>
+              <span className="text-[11px] font-mono text-[var(--text-secondary)]">v2.5 Local Security</span>
             </div>
           </div>
 
           {/* Footer Actions */}
-          <div className="p-5 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
-            <span className="text-xs text-slate-400">
+          <div className="p-5 bg-[var(--bg-secondary)] border-t border-[var(--border)] flex items-center justify-between">
+            <span className="text-xs text-[var(--text-secondary)]">
               FluxMark 极简纯粹，为您的创作保驾护航
             </span>
             <button

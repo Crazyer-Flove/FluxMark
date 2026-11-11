@@ -66,7 +66,7 @@ export const VideoComponent = ({ node, updateAttributes, deleteNode }: any) => {
 
   return (
     <NodeViewWrapper 
-      className="video-node-view my-8 border border-slate-200 rounded-2xl overflow-hidden bg-slate-50 shadow-sm transition-all hover:shadow-md mx-auto"
+      className="video-node-view my-8 border border-[var(--border)] rounded-2xl overflow-hidden bg-[var(--bg-secondary)] shadow-sm transition-all hover:shadow-md mx-auto"
       style={{ width: node.attrs.width || '100%', maxWidth: '100%' }}
     >
       <div className="relative group">
@@ -85,7 +85,7 @@ export const VideoComponent = ({ node, updateAttributes, deleteNode }: any) => {
             <button 
               onClick={togglePlay}
               title={isPlaying ? "暂停" : "播放"}
-              className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-md flex items-center justify-center text-white transition-all active:scale-90"
+              className="w-8 h-8 rounded-full bg-[var(--bg-primary)]/20 hover:bg-[var(--bg-primary)]/30 backdrop-blur-md flex items-center justify-center text-white transition-all active:scale-90"
             >
               {isPlaying ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
             </button>
@@ -98,7 +98,7 @@ export const VideoComponent = ({ node, updateAttributes, deleteNode }: any) => {
             <button 
               onClick={() => setShowSettings(!showSettings)}
               title="视频选项"
-              className={`p-2 rounded-lg backdrop-blur-md transition-all ${showSettings ? 'bg-blue-500 text-white' : 'bg-white/20 text-white hover:bg-white/30'}`}
+              className={`p-2 rounded-lg backdrop-blur-md transition-all ${showSettings ? 'bg-blue-500 text-white' : 'bg-[var(--bg-primary)]/20 text-white hover:bg-[var(--bg-primary)]/30'}`}
             >
               <Settings2 size={16} />
             </button>
@@ -119,12 +119,12 @@ export const VideoComponent = ({ node, updateAttributes, deleteNode }: any) => {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="border-t border-slate-200 bg-white p-4 space-y-4"
+            className="border-t border-[var(--border)] bg-[var(--bg-primary)] p-4 space-y-4"
           >
             {/* Playback Speed */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider flex items-center gap-1.5">
                   <Maximize2 size={12} />
                   视频宽度 ({node.attrs.width || '100%'})
                 </label>
@@ -137,7 +137,7 @@ export const VideoComponent = ({ node, updateAttributes, deleteNode }: any) => {
                     className={`flex-1 py-1 text-[10px] font-bold rounded-lg border transition-all ${
                       node.attrs.width === w 
                         ? 'bg-blue-600 border-blue-600 text-white shadow-sm' 
-                        : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                        : 'bg-[var(--bg-primary)] border-[var(--border)] text-[var(--text-primary)] hover:border-[var(--border)]'
                     }`}
                   >
                     {w}
@@ -158,7 +158,7 @@ export const VideoComponent = ({ node, updateAttributes, deleteNode }: any) => {
             {/* Playback Speed */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider flex items-center gap-1.5">
                   <FastForward size={12} />
                   播放速度 ({playbackSpeed}x)
                 </label>
@@ -171,7 +171,7 @@ export const VideoComponent = ({ node, updateAttributes, deleteNode }: any) => {
                     className={`flex-1 py-1 text-[10px] font-bold rounded-lg border transition-all ${
                       playbackSpeed === speed 
                         ? 'bg-blue-600 border-blue-600 text-white shadow-sm' 
-                        : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                        : 'bg-[var(--bg-primary)] border-[var(--border)] text-[var(--text-primary)] hover:border-[var(--border)]'
                     }`}
                   >
                     {speed}x
@@ -182,14 +182,14 @@ export const VideoComponent = ({ node, updateAttributes, deleteNode }: any) => {
 
             {/* Trimming (Start/End) */}
             <div className="space-y-3">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider flex items-center gap-1.5">
                 <Scissors size={12} />
                 视频裁剪 (视觉预览)
               </label>
               
               <div className="space-y-4">
                 <div className="space-y-1">
-                  <div className="flex justify-between text-[10px] font-mono text-slate-500">
+                  <div className="flex justify-between text-[10px] font-mono text-[var(--text-secondary)]">
                     <span>起点: {formatTime(startPos)}</span>
                   </div>
                   <input 
@@ -208,7 +208,7 @@ export const VideoComponent = ({ node, updateAttributes, deleteNode }: any) => {
                 </div>
                 
                 <div className="space-y-1">
-                  <div className="flex justify-between text-[10px] font-mono text-slate-500">
+                  <div className="flex justify-between text-[10px] font-mono text-[var(--text-secondary)]">
                     <span>终点: {formatTime(endPos || duration)}</span>
                   </div>
                   <input 
@@ -227,7 +227,7 @@ export const VideoComponent = ({ node, updateAttributes, deleteNode }: any) => {
               </div>
             </div>
             
-            <div className="pt-2 text-[10px] text-slate-400 italic">
+            <div className="pt-2 text-[10px] text-[var(--text-secondary)] italic">
               * 裁剪功能仅限应用内播放时限制起终点，不会修改原始文件。
             </div>
           </motion.div>

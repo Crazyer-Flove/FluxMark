@@ -1,0 +1,309 @@
+.markdown-skin-picker {
+  position:relative; display:flex; align-items:center; flex:none; border:1px solid var(--border);
+  border-radius:6px; background:var(--bg-secondary); color:var(--text-primary);
+}
+.markdown-skin-picker:hover {background:var(--hover-bg);}
+.markdown-skin-picker svg {position:absolute; pointer-events:none; color:var(--text-secondary);}
+.markdown-skin-picker svg:first-child {left:7px;}
+.markdown-skin-picker svg:last-child {right:5px; width:11px;}
+.markdown-skin-picker select {appearance:none; font-size:12px; font-weight:600; padding:5px 19px 5px 26px; border-radius:inherit; cursor:pointer; color:inherit;}
+.markdown-skin-picker select:focus-visible {outline:2px solid var(--accent); outline-offset:-2px;}
+.markdown-skin-picker option {background:var(--bg-primary);color:var(--text-primary);}
+
+[data-markdown-skin] {
+  --skin-hue:var(--accent);
+  --skin-heading:var(--text-primary);
+  --skin-rule:var(--border);
+  --skin-panel:var(--bg-secondary);
+  --skin-radius:8px;
+  --skin-ink:color-mix(in srgb,var(--text-primary) 88%,var(--skin-hue));
+}
+[data-markdown-skin] .ProseMirror :is(h1,h2,h3,h4,h5,h6) {color:var(--skin-heading); font-weight:680; line-height:1.24; text-wrap:balance;}
+.writing-canvas[data-markdown-skin] .ProseMirror :is(h4,h5,h6) {margin:1.25em 0 .5em;}
+.writing-canvas[data-markdown-skin] .ProseMirror h4 {font-size:1.17em;}
+.writing-canvas[data-markdown-skin] .ProseMirror h5 {font-size:1.07em;}
+.writing-canvas[data-markdown-skin] .ProseMirror h6 {font-size:1em;color:var(--text-secondary);}
+[data-markdown-skin] .ProseMirror blockquote {border:0; border-inline-start:2px solid var(--skin-rule); border-radius:0 var(--skin-radius) var(--skin-radius) 0; background:var(--skin-panel); padding:.65em 1em; color:var(--skin-ink);}
+[data-markdown-skin] .ProseMirror blockquote > :last-child {margin-bottom:0;}
+[data-markdown-skin] .ProseMirror code:not(pre code) {background:var(--skin-panel);border-color:var(--skin-rule);color:var(--skin-ink);}
+[data-markdown-skin] .ProseMirror table {border-color:var(--skin-rule);}
+[data-markdown-skin] .ProseMirror th {background:var(--skin-panel); color:var(--skin-ink);}
+[data-markdown-skin] .ProseMirror :is(th,td) {border-color:var(--skin-rule);}
+[data-markdown-skin] .ProseMirror :is(ul,ol) > li::marker {color:var(--skin-ink);}
+[data-markdown-skin] .ProseMirror hr {border-color:var(--skin-rule);}
+[data-markdown-skin] .ProseMirror .code-block-custom > div {border-color:var(--skin-rule);}
+[data-markdown-skin] .ProseMirror .code-block-custom > :first-child {background:var(--skin-panel);border-start-start-radius:var(--skin-radius);border-start-end-radius:var(--skin-radius);}
+[data-markdown-skin] .ProseMirror .code-block-custom > :last-child {border-end-start-radius:var(--skin-radius);border-end-end-radius:var(--skin-radius);}
+[data-markdown-skin] .ProseMirror .code-block-custom > :first-child > :first-child > div {background:var(--skin-hue);width:6px;height:6px;}
+[data-markdown-skin] .ProseMirror .code-block-custom > :first-child > :first-child > div:nth-child(2) {opacity:.6;}
+[data-markdown-skin] .ProseMirror .code-block-custom > :first-child > :first-child > div:nth-child(3) {opacity:.35;}
+
+/* Each skin sets a distinct page composition. Presentation keeps its own sizing. */
+.writing-canvas[data-markdown-skin] > .w-full {
+  width:min(100%, var(--skin-measure, 100%));
+  min-width:0;
+  align-self:center;
+}
+.writing-canvas[data-markdown-skin] .ProseMirror {
+  font-size:var(--skin-body-size, 15px);
+  line-height:var(--skin-leading, 1.95);
+  overflow-wrap:anywhere;
+}
+.writing-canvas .tiptap :is(.tableWrapper, pre, .katex-display) {
+  max-width:100%;
+  overflow-x:auto;
+  overscroll-behavior-inline:contain;
+}
+.writing-canvas .tiptap > hr {
+  position:relative;
+  overflow:visible;
+  margin-block:1.55em;
+}
+.writing-canvas .tiptap > hr::after {
+  content:"演示分页";
+  position:absolute;
+  inset-inline-end:0;
+  top:0;
+  transform:translateY(-50%);
+  padding:2px 7px;
+  border:1px solid var(--border);
+  border-radius:5px;
+  background:var(--bg-primary);
+  color:var(--text-secondary);
+  font-size:10px;
+  line-height:1.3;
+  pointer-events:none;
+}
+[data-markdown-skin] .ProseMirror :is(h2,h3,h4,h5,h6) + :is(p,ul,ol) {margin-top:0;}
+[data-markdown-skin] .ProseMirror li > p {margin-block:0 .35em;}
+[data-markdown-skin] .ProseMirror blockquote .blockquote-content p + p {margin-top:.75em;}
+[data-markdown-skin] .ProseMirror blockquote .blockquote-content p:last-child {margin-bottom:0;}
+
+.writing-canvas[data-markdown-skin='studio'] {--skin-measure:640px;--skin-body-size:16px;--skin-leading:1.95;}
+[data-markdown-skin='studio'] .ProseMirror h1 {letter-spacing:-.045em;border:0;}
+.writing-canvas[data-markdown-skin='studio'] .ProseMirror h1 {font-size:clamp(28px,5vw,44px);font-weight:730;margin-bottom:.9em;}
+[data-markdown-skin='studio'] .ProseMirror h2 {border:0;letter-spacing:-.025em;}
+[data-markdown-skin='studio'] .ProseMirror blockquote {font-style:normal;border-inline-start:2px solid var(--skin-rule);background:transparent;}
+[data-markdown-skin='studio'] .ProseMirror :is(td,th) {border-inline:0;}
+
+[data-markdown-skin='editorial'] {
+  --skin-hue:#a47a82;--skin-measure:570px;--skin-body-size:17px;--skin-leading:2;
+  --skin-panel:color-mix(in srgb,var(--bg-primary) 96%,var(--skin-hue));--skin-rule:color-mix(in srgb,var(--border) 67%,var(--skin-hue));--skin-radius:0px;
+}
+.writing-canvas[data-markdown-skin='editorial'] {background:var(--skin-panel);}
+[data-markdown-skin='editorial'] .ProseMirror :is(h1,h2,h3,h4,h5,h6,blockquote) {font-family:Georgia,'Songti SC',SimSun,serif;}
+[data-markdown-skin='editorial'] .ProseMirror h1 {text-align:center;border-block:1px solid var(--skin-rule);padding:.45em 0 .55em;}
+.writing-canvas[data-markdown-skin='editorial'] .ProseMirror h1 {font-size:clamp(34px,6.5vw,57px);line-height:1.13;letter-spacing:-.025em;}
+[data-markdown-skin='editorial'] .ProseMirror h2 {border:0;letter-spacing:.02em;}
+.writing-canvas[data-markdown-skin='editorial'] .ProseMirror > p {margin-bottom:1.4em;}
+[data-markdown-skin='editorial'] .ProseMirror blockquote {padding:1em 1.2em;text-align:center;border:0;border-block:1px solid var(--skin-rule);background:transparent;font-size:1.12em;}
+[data-markdown-skin='editorial'] .ProseMirror :is(th,td) {border-inline:0;}
+
+[data-markdown-skin='technical'] {
+  --skin-hue:#718d9d;--skin-leading:1.82;
+  --skin-panel:color-mix(in srgb,var(--bg-primary) 93%,var(--skin-hue));--skin-rule:color-mix(in srgb,var(--border) 80%,var(--skin-hue));--skin-radius:8px;
+}
+.writing-canvas[data-markdown-skin='technical'] {background:linear-gradient(var(--skin-panel),var(--bg-primary) 300px);}
+[data-markdown-skin='technical'] .ProseMirror :is(h1,h2,h3,h4,h5,h6) {font-family:ui-monospace,Consolas,monospace;letter-spacing:-.035em;}
+[data-markdown-skin='technical'] .ProseMirror h1 {background:var(--skin-panel);color:var(--text-primary);border:1px solid var(--skin-rule);border-radius:var(--skin-radius);padding:.42em .65em;}
+.writing-canvas[data-markdown-skin='technical'] .ProseMirror h1 {font-size:clamp(24px,4vw,36px);}
+[data-markdown-skin='technical'] .ProseMirror h2 {border-bottom:1px dashed var(--skin-rule);}
+[data-markdown-skin='technical'] .ProseMirror blockquote {font-style:normal;border:1px solid var(--skin-rule);border-inline-start:2px solid var(--skin-rule);border-radius:4px;}
+[data-markdown-skin='technical'] .ProseMirror th {text-align:left;}
+[data-markdown-skin='technical'] .ProseMirror pre code {font-variant-ligatures:none;}
+
+[data-markdown-skin='notebook'] {
+  --skin-hue:#a18a6c;--skin-measure:680px;--skin-body-size:16px;--skin-leading:2.06;
+  --skin-panel:color-mix(in srgb,var(--bg-primary) 94%,var(--skin-hue));--skin-rule:color-mix(in srgb,var(--border) 70%,var(--skin-hue));--skin-radius:16px;
+}
+.writing-canvas[data-markdown-skin='notebook'] {
+  background-color:color-mix(in srgb,var(--bg-primary) 94%,var(--skin-hue));
+  background-image:radial-gradient(circle,color-mix(in srgb,var(--skin-hue) 33%,transparent) .7px,transparent 1px);
+  background-size:18px 18px;
+}
+[data-markdown-skin='notebook'] .ProseMirror h1 {padding:.45em .65em;background:var(--skin-panel);border:1px solid var(--skin-rule);border-radius:var(--skin-radius);}
+.writing-canvas[data-markdown-skin='notebook'] .ProseMirror h1 {font-size:clamp(27px,4.5vw,39px);}
+[data-markdown-skin='notebook'] .ProseMirror h2 {padding:.22em .52em;border:0;border-inline-start:2px solid var(--skin-rule);background:linear-gradient(90deg,var(--skin-panel),transparent);}
+[data-markdown-skin='notebook'] .ProseMirror blockquote {border:1px dashed var(--skin-rule);border-radius:var(--skin-radius);}
+[data-markdown-skin='notebook'] .ProseMirror :is(p,li) {letter-spacing:.02em;}
+[data-markdown-skin='notebook'] .ProseMirror table {background:var(--bg-primary);}
+
+[data-markdown-skin='compact'] {
+  --skin-hue:#8b80a3;--skin-measure:740px;--skin-body-size:14px;--skin-leading:1.72;
+  --skin-panel:color-mix(in srgb,var(--bg-primary) 94%,var(--skin-hue));--skin-rule:color-mix(in srgb,var(--border) 73%,var(--skin-hue));--skin-radius:4px;
+}
+[data-markdown-skin='compact'] .ProseMirror :is(p,ul,ol,pre,blockquote) {margin-bottom:.52em;}
+[data-markdown-skin='compact'] .ProseMirror :is(h1,h2,h3) {margin:.95em 0 .45em;border:0;}
+[data-markdown-skin='compact'] .ProseMirror h1 {padding:.28em 0 .38em;border-block-end:3px solid var(--skin-rule);}
+.writing-canvas[data-markdown-skin='compact'] .ProseMirror h1 {font-size:1.85em;}
+[data-markdown-skin='compact'] .ProseMirror h2 {padding:.28em .6em;background:var(--skin-panel);border-radius:4px;}
+.writing-canvas[data-markdown-skin='compact'] .ProseMirror h2 {font-size:1.35em;}
+[data-markdown-skin='compact'] .ProseMirror blockquote {padding:.38em .7em;font-style:normal;}
+[data-markdown-skin='compact'] .ProseMirror table {margin-block:.9em;}
+[data-markdown-skin='compact'] .ProseMirror :is(th,td) {padding:.26em .55em;}
+
+[data-markdown-skin='studio'] {--skin-hue:#6b948a;}
+.markdown-skin-picker[data-markdown-skin] {border-color:color-mix(in srgb,var(--border) 55%,var(--skin-hue));}
+.markdown-skin-picker[data-markdown-skin] svg:first-child {color:var(--skin-ink);}
+
+.writing-canvas[data-markdown-skin] .ProseMirror > p {margin-block:0 var(--skin-paragraph-gap, 1em);}
+[data-markdown-skin] .ProseMirror a {color:var(--skin-ink);text-decoration-color:var(--skin-hue);text-underline-offset:.19em;}
+.writing-canvas[data-markdown-skin] .ProseMirror :is(h1,h2,h3)::selection {background:var(--skin-panel);}
+
+.writing-canvas[data-markdown-skin='studio'] {
+  --skin-paragraph-gap:1.25em;
+  --skin-panel:color-mix(in srgb,var(--bg-primary) 92%,var(--skin-hue));
+  background:linear-gradient(155deg,var(--skin-panel),var(--bg-primary) 360px);
+}
+[data-markdown-skin='studio'] .ProseMirror h1 {
+  background:linear-gradient(var(--skin-hue),var(--skin-hue)) left bottom / 2.2ch 2px no-repeat;
+  padding-bottom:.48em;
+}
+[data-markdown-skin='studio'] .ProseMirror th {background:none;border-bottom:1px solid var(--skin-rule);}
+
+.writing-canvas[data-markdown-skin='editorial'] {--skin-paragraph-gap:1.25em;}
+.writing-canvas[data-markdown-skin='editorial'] .ProseMirror {
+  font-family:Georgia,'Songti SC','STSong','SimSun',serif;
+}
+[data-markdown-skin='editorial'] .ProseMirror h1 {color:var(--skin-ink);}
+[data-markdown-skin='editorial'] .ProseMirror blockquote {border-block-width:1px;font-style:italic;}
+[data-markdown-skin='editorial'] .ProseMirror hr {width:3em;margin-inline:auto;border-top:1px solid var(--skin-rule);}
+
+.writing-canvas[data-markdown-skin='technical'] {
+  --skin-paragraph-gap:.8em;
+  background:
+    repeating-linear-gradient(90deg,transparent 0 31px,color-mix(in srgb,var(--skin-hue) 5%,transparent) 31px 32px),
+    linear-gradient(var(--skin-panel),var(--bg-primary) 360px);
+}
+[data-markdown-skin='technical'] .ProseMirror h2 {border-inline-start:2px solid var(--skin-rule);padding-inline-start:.45em;}
+[data-markdown-skin='technical'] .ProseMirror .code-block-custom > :first-child {background:var(--skin-panel);color:var(--text-primary);}
+[data-markdown-skin='technical'] .ProseMirror .code-block-custom > :first-child :is(button,select) {color:inherit;}
+[data-markdown-skin='technical'] .ProseMirror .code-block-custom option {background:var(--skin-panel);color:var(--text-primary);}
+
+.writing-canvas[data-markdown-skin='notebook'] {
+  --skin-paragraph-gap:1.05em;
+  background-image:
+    linear-gradient(90deg,transparent 13px,color-mix(in srgb,var(--skin-hue) 24%,transparent) 13px 14px,transparent 14px),
+    repeating-linear-gradient(transparent 0 31px,color-mix(in srgb,var(--skin-hue) 7%,transparent) 31px 32px);
+  background-size:auto;
+}
+[data-markdown-skin='notebook'] .ProseMirror h1 {font-family:'Palatino Linotype','Kaiti SC',KaiTi,Georgia,serif;}
+[data-markdown-skin='notebook'] .ProseMirror blockquote {box-shadow:0 2px 8px color-mix(in srgb,var(--skin-hue) 10%,transparent);}
+
+.writing-canvas[data-markdown-skin='compact'] {
+  --skin-paragraph-gap:.78em;
+  background:linear-gradient(110deg,var(--skin-panel),var(--bg-primary) 32%);
+}
+[data-markdown-skin='compact'] .ProseMirror h1 {
+  background:linear-gradient(90deg,var(--skin-rule),transparent) left bottom / 100% 2px no-repeat;
+  border:0;
+}
+[data-markdown-skin='compact'] .ProseMirror h2 {border-inline-start:2px solid var(--skin-rule);}
+[data-markdown-skin='compact'] .ProseMirror blockquote {border-inline-start-width:2px;background:transparent;}
+[data-markdown-skin='compact'] .ProseMirror th {border-bottom:1px solid var(--skin-rule);}
+
+[data-markdown-skin='mac'] {
+  --skin-hue: #6d93bd;
+  --skin-measure: 650px;
+  --skin-body-size: 16px;
+  --skin-leading: 1.86;
+  --skin-paragraph-gap: 1.16em;
+  --skin-panel: color-mix(in srgb, var(--bg-primary) 89%, var(--skin-hue));
+  --skin-rule: color-mix(in srgb, var(--border) 76%, var(--skin-hue));
+  --skin-radius: 12px;
+  --skin-system-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+.writing-canvas[data-markdown-skin='mac'] {
+  background: radial-gradient(ellipse at 82% 0%, var(--skin-panel), transparent 54%) no-repeat,
+    var(--bg-primary);
+  background-size: 100% min(720px, 85vh), auto;
+}
+
+[data-markdown-skin='mac'] .ProseMirror {
+  font-family: var(--skin-system-font);
+}
+
+[data-markdown-skin='mac'] .ProseMirror :is(h1, h2, h3) {
+  letter-spacing: -.025em;
+}
+
+[data-markdown-skin='mac'] .ProseMirror h1 {
+  padding-bottom: .45em;
+  border: 0;
+  background: linear-gradient(90deg, var(--skin-rule), transparent 75%) left bottom / 100% 1px no-repeat;
+}
+
+.writing-canvas[data-markdown-skin='mac'] .ProseMirror h1 {
+  font-size: clamp(29px, 4.8vw, 49px);
+  line-height: 1.16;
+  font-weight: 700;
+  margin-bottom: .68em;
+}
+
+[data-markdown-skin='mac'] .ProseMirror h2 {
+  border: 0;
+  margin-bottom: .46em;
+}
+
+[data-markdown-skin='mac'] .ProseMirror blockquote {
+  border: 1px solid var(--skin-rule);
+  border-radius: var(--skin-radius);
+  background: linear-gradient(150deg, var(--skin-panel), var(--bg-primary));
+  font-style: normal;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--text-primary) 5%, transparent);
+}
+
+[data-markdown-skin='mac'] .ProseMirror :is(th, td) {
+  border-inline: 0;
+}
+
+[data-markdown-skin='mac'] .ProseMirror th {
+  text-align: start;
+  font-weight: 650;
+}
+
+[data-markdown-skin='mac'] .ProseMirror :is(pre code, code) {
+  font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+}
+
+[data-markdown-skin='mac'] .ProseMirror .code-block-custom > :first-child > :first-child > div:nth-child(1) {background:#d98983;}
+[data-markdown-skin='mac'] .ProseMirror .code-block-custom > :first-child > :first-child > div:nth-child(2) {background:#d0ac68;opacity:1;}
+[data-markdown-skin='mac'] .ProseMirror .code-block-custom > :first-child > :first-child > div:nth-child(3) {background:#83ae96;opacity:1;}
+
+.writing-canvas[data-markdown-skin] .tiptap {
+  line-height: clamp(1.45, calc(var(--skin-leading, 1.95) - .45), 1.56);
+}
+
+.writing-canvas[data-markdown-skin] .tiptap > p {
+  margin-block: 0 clamp(.28em, calc(var(--skin-paragraph-gap, 1em) * .34), .44em);
+}
+
+.writing-canvas[data-markdown-skin] .tiptap > h1 {
+  margin-block: .72em .32em;
+}
+
+.writing-canvas[data-markdown-skin] .tiptap > :is(h2, h3, h4, h5, h6) {
+  margin-block: .76em .25em;
+}
+
+.writing-canvas[data-markdown-skin] .tiptap > :is(h1, h2, h3, h4, h5, h6):first-child {
+  margin-top: 0;
+}
+
+.writing-canvas[data-markdown-skin] .tiptap :is(ul, ol) {
+  margin-block: .1em .4em;
+}
+
+.writing-canvas[data-markdown-skin] .tiptap li {
+  margin-block: .04em;
+}
+
+.writing-canvas[data-markdown-skin] .tiptap li p {
+  margin-block: 0 .08em;
+}
+
+.writing-canvas[data-markdown-skin] .tiptap :is(blockquote, .code-block-custom, table) {
+  margin-block: .62em;
+}
+

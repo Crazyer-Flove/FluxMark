@@ -1,16 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Printer, Image as ImageIcon, X, Sparkles, 
   CheckCircle2, Loader2, Bookmark, Download, Zap, Eye, Layout
 } from 'lucide-react';
 
 export interface PDFExportOptions {
+  showBrandHeader?: boolean;
+  printFriendly?: boolean;
   pageRangeType: 'all' | 'custom';
   customPages: string;
   pageQuality: 'standard' | 'high'; // 150DPI vs 300DPI
 }
 
 export interface ImageExportOptions {
+  showBrandHeader?: boolean;
+  printFriendly?: boolean;
   padding: 'tight' | 'standard' | 'relaxed'; // 16px, 32px, 48px
   pixelRatio: 1 | 2 | 3;
   bgColorType: 'theme' | 'white' | 'dark';
@@ -22,6 +26,7 @@ export interface PDFExportModalProps {
   initialTab?: 'pdf' | 'image';
   onExportPDF: (options: PDFExportOptions) => Promise<void>;
   onExportImage: (options: ImageExportOptions) => Promise<void>;
+  onPreview: (tab: 'pdf' | 'image', options: PDFExportOptions | ImageExportOptions) => Promise<{src:string; description:string}>;
   // Backward compatibility alias for single export prop
   onExport?: (options: PDFExportOptions) => Promise<void>;
   docName: string;
@@ -38,6 +43,7 @@ export const PDFExportModal: React.FC<PDFExportModalProps> = ({
   initialTab = 'pdf',
   onExportPDF,
   onExportImage,
+  onPreview,
   onExport,
   docName,
   currentThemeName,
@@ -47,6 +53,19 @@ export const PDFExportModal: React.FC<PDFExportModalProps> = ({
   progressStatusText = '',
 }) => {
   const [activeTab, setActiveTab] = useState<'pdf' | 'image'>('pdf');
+  const [showBrandHeader, setShowBrandHeader] = useState(false);
+  const [printFriendly, setPrintFriendly] = useState(false);
+  const [preview, setPreview] = useState<{src:string; description:string} | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+  const dialog = useRef<HTMLDialogElement>(null);
+  const previewRevision = useRef(0);
+  useEffect(() => {
+    const element = dialog.current;
+    if (!isOpen || !element) return;
+    element.showModal();
+    return () => element.close();
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -65,27 +84,37 @@ export const PDFExportModal: React.FC<PDFExportModalProps> = ({
     pixelRatio: 2,
     bgColorType: 'theme',
   });
+  useEffect(() => {
+    previewRevision.current += 1;
+    setPreview(null);
+    setPreviewError('');
+  }, [activeTab, showBrandHeader, printFriendly, pdfOptions, imageOptions, isOpen]);
 
   if (!isOpen) return null;
 
   const handleStartExportPDF = async () => {
     if (onExportPDF) {
-      await onExportPDF(pdfOptions);
+      await onExportPDF({...pdfOptions, showBrandHeader, printFriendly});
     } else if (onExport) {
-      await onExport(pdfOptions);
+      await onExport({...pdfOptions, showBrandHeader, printFriendly});
     }
   };
 
   const handleStartExportImage = async () => {
     if (onExportImage) {
-      await onExportImage(imageOptions);
+      await onExportImage({...imageOptions, showBrandHeader, printFriendly});
     }
   };
 
+  const formatName = activeTab === 'pdf' ? 'PDF' : '长图';
+  const exportLabel = isGenerating ? `正在生成${formatName}…`
+    : previewLoading ? '等待预览完成…' : `生成并导出${formatName}`;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200 pdf-export-modal-root">
+    <dialog ref={dialog} aria-label="导出设置" onCancel={event=>{event.preventDefault();if(!isGenerating)onClose();}}
+      className="fixed inset-0 m-0 h-full w-full max-h-none max-w-none z-[2500] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200 pdf-export-modal-root">
       <div 
-        className="w-full max-w-lg bg-[var(--bg-primary)] border border-[var(--border)] rounded-2xl shadow-2xl overflow-hidden text-[var(--text-primary)] flex flex-col font-sans"
+        className="w-full max-w-lg max-h-[calc(100dvh-2rem)] bg-[var(--bg-primary)] border border-[var(--border)] rounded-2xl shadow-2xl overflow-hidden text-[var(--text-primary)] flex flex-col font-sans"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header with Title & Tab Switcher */}
@@ -99,7 +128,7 @@ export const PDFExportModal: React.FC<PDFExportModalProps> = ({
                 <h3 className="font-bold text-base leading-tight flex items-center gap-2">
                   {activeTab === 'pdf' ? '导出 PDF 文档' : '导出长图海报'}
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/80 dark:text-blue-400 border border-blue-500/30">
-                    {activeTab === 'pdf' ? 'A4 矢量适配' : '高清像素抓取'}
+                    {activeTab === 'pdf' ? 'A4 图像版' : '高清像素抓取'}
                   </span>
                 </h3>
                 <p className="text-xs text-[var(--text-secondary)] mt-0.5 truncate max-w-[280px]">
@@ -129,7 +158,7 @@ export const PDFExportModal: React.FC<PDFExportModalProps> = ({
               }`}
             >
               <Printer size={14} />
-              <span>📄 PDF 矢量文档</span>
+              <span>📄 PDF 图像文档</span>
             </button>
 
             <button
@@ -149,7 +178,35 @@ export const PDFExportModal: React.FC<PDFExportModalProps> = ({
         </div>
 
         {/* Modal Body Content */}
-        <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+        <div className="p-5 space-y-4 min-h-0 flex-1 overflow-y-auto">
+          <label className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border)] p-3 text-sm">
+            <span>正文样式</span>
+            <select className="rounded-md border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 text-[var(--text-primary)]"
+              disabled={isGenerating} value={printFriendly ? 'print' : 'skin'} onChange={event => setPrintFriendly(event.target.value === 'print')}>
+              <option value="skin">跟随正文皮肤</option>
+              <option value="print">打印友好 · 白底</option>
+            </select>
+          </label>
+          <div className="export-brand-setting">
+            <div><label htmlFor="export-brand-toggle">首页品牌页眉</label><p>仅在首页顶部显示软件标题和介绍，不修改正文。</p></div>
+            <button id="export-brand-toggle" type="button" role="switch" aria-checked={showBrandHeader} aria-label="首页品牌页眉" disabled={isGenerating} onClick={()=>setShowBrandHeader(v=>!v)} className="export-toggle"><span/></button>
+            {showBrandHeader && <div className="export-brand-preview"><strong>FluxMark</strong><span>灵感流淌，极致表达。</span></div>}
+          </div>
+          <section className="rounded-xl border border-[var(--border)] p-3 space-y-2" aria-label="导出效果预览">
+            <button type="button" disabled={isGenerating || previewLoading} className="rounded-lg bg-[var(--bg-secondary)] px-3 py-2"
+              onClick={async () => {
+                const revision = previewRevision.current;
+                setPreviewLoading(true);
+                setPreviewError('');
+                try {
+                  const result = await onPreview(activeTab, {...(activeTab === 'pdf' ? pdfOptions : imageOptions), showBrandHeader, printFriendly});
+                  if (revision === previewRevision.current) setPreview(result);
+                } catch { if (revision === previewRevision.current) setPreviewError('预览生成失败，请重试。'); }
+                finally { setPreviewLoading(false); }
+              }}>{previewLoading ? '正在生成预览…' : '预览导出效果'}</button>
+            {previewError && <p role="alert">{previewError}</p>}
+            {preview && <><p className="text-xs text-[var(--text-secondary)]">{preview.description}</p><img className="max-h-64 w-auto rounded-md border border-[var(--border)]" src={preview.src} alt="导出效果预览"/></>}
+          </section>
           {activeTab === 'pdf' ? (
             /* ======================================================== */
             /*                      PDF TAB CONTENT                     */
@@ -273,11 +330,11 @@ export const PDFExportModal: React.FC<PDFExportModalProps> = ({
                     }`}
                   >
                     <div className="flex items-center justify-between w-full">
-                      <span className="text-xs">🌟 矢量超清 (300 DPI)</span>
+                      <span className="text-xs">🌟 高清采样 (2×)</span>
                       {pdfOptions.pageQuality === 'high' && <CheckCircle2 size={15} className="text-blue-500" />}
                     </div>
                     <div className="text-[10px] font-normal opacity-80 truncate">
-                      出版级高分辨率，适合正式打印归档
+                      提高画布采样精度，文件可能更大
                     </div>
                   </button>
                 </div>
@@ -366,10 +423,10 @@ export const PDFExportModal: React.FC<PDFExportModalProps> = ({
                 <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
-                    disabled={isGenerating}
+                    disabled={isGenerating || printFriendly}
                     onClick={() => setImageOptions(prev => ({ ...prev, bgColorType: 'theme' }))}
                     className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-1 ${
-                      imageOptions.bgColorType === 'theme'
+                      !printFriendly && imageOptions.bgColorType === 'theme'
                         ? 'bg-blue-500/10 border-blue-500 text-[var(--text-primary)] font-bold shadow-2xs'
                         : 'bg-[var(--bg-secondary)] border-[var(--border)] text-[var(--text-secondary)]'
                     }`}
@@ -380,10 +437,10 @@ export const PDFExportModal: React.FC<PDFExportModalProps> = ({
 
                   <button
                     type="button"
-                    disabled={isGenerating}
+                    disabled={isGenerating || printFriendly}
                     onClick={() => setImageOptions(prev => ({ ...prev, bgColorType: 'white' }))}
                     className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-1 ${
-                      imageOptions.bgColorType === 'white'
+                      printFriendly || imageOptions.bgColorType === 'white'
                         ? 'bg-blue-500/10 border-blue-500 text-[var(--text-primary)] font-bold shadow-2xs'
                         : 'bg-[var(--bg-secondary)] border-[var(--border)] text-[var(--text-secondary)]'
                     }`}
@@ -394,10 +451,10 @@ export const PDFExportModal: React.FC<PDFExportModalProps> = ({
 
                   <button
                     type="button"
-                    disabled={isGenerating}
+                    disabled={isGenerating || printFriendly}
                     onClick={() => setImageOptions(prev => ({ ...prev, bgColorType: 'dark' }))}
                     className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-1 ${
-                      imageOptions.bgColorType === 'dark'
+                      !printFriendly && imageOptions.bgColorType === 'dark'
                         ? 'bg-blue-500/10 border-blue-500 text-[var(--text-primary)] font-bold shadow-2xs'
                         : 'bg-[var(--bg-secondary)] border-[var(--border)] text-[var(--text-secondary)]'
                     }`}
@@ -489,7 +546,7 @@ export const PDFExportModal: React.FC<PDFExportModalProps> = ({
                   className="bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-500 h-full rounded-full transition-all duration-300 relative overflow-hidden shadow-xs"
                   style={{ width: `${Math.min(100, Math.max(4, progressPercent))}%` }}
                 >
-                  <div className="absolute inset-0 bg-white/25 animate-pulse" />
+                  <div className="absolute inset-0 bg-[var(--bg-primary)]/25 animate-pulse" />
                 </div>
               </div>
 
@@ -504,7 +561,7 @@ export const PDFExportModal: React.FC<PDFExportModalProps> = ({
               <Sparkles size={16} className="text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
               <div className="leading-relaxed">
                 {activeTab === 'pdf' ? (
-                  <span><b>A4 矢量精密切割：</b>智能切分每页 A4 布局，自动避让断行并生成标准离线 PDF。</span>
+                  <span><b>A4 图像分页：</b>按 A4 尺寸分页，文字随页面渲染为图像。较长段落可能跨页。</span>
                 ) : (
                   <span><b>全景高精长图：</b>原汁原味还原编辑器视觉排版与图片渲染，一键生成无缝 PNG 长图。</span>
                 )}
@@ -524,49 +581,23 @@ export const PDFExportModal: React.FC<PDFExportModalProps> = ({
             取消
           </button>
 
-          {activeTab === 'pdf' ? (
-            <button
-              type="button"
-              onClick={handleStartExportPDF}
-              disabled={isGenerating}
-              className="px-5 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 active:scale-95 rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              {isGenerating ? (
-                <>
-                  <Loader2 size={15} className="animate-spin" />
-                  <span>正在导出 PDF...</span>
-                </>
-              ) : (
-                <>
-                  <Printer size={15} />
-                  <span>生成并导出 PDF</span>
-                </>
-              )}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleStartExportImage}
-              disabled={isGenerating}
-              className="px-5 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 active:scale-95 rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              {isGenerating ? (
-                <>
-                  <Loader2 size={15} className="animate-spin" />
-                  <span>正在生成长图...</span>
-                </>
-              ) : (
-                <>
-                  <Download size={15} />
-                  <span>生成并导出长图</span>
-                </>
-              )}
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={activeTab === 'pdf' ? handleStartExportPDF : handleStartExportImage}
+            disabled={isGenerating || previewLoading}
+            aria-busy={isGenerating}
+            className="ui-primary export-submit"
+          >
+            {isGenerating ? <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+              : activeTab === 'pdf' ? <Printer size={16} aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}
+            <span>{exportLabel}</span>
+          </button>
+          <span className="sr-only" role="status">{isGenerating ? exportLabel : ''}</span>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 };
 
 export const ExportModal = PDFExportModal;
+
