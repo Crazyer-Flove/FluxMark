@@ -2,10 +2,11 @@
   "appId": "io.github.crazyer-flove.fluxmark",
   "productName": "FluxMark",
   "directories": { "output": "release" },
-  "files": ["dist/**/*", "desktop/main.cjs", "package.json", "!node_modules/**/*"],
+  "files": ["dist/**/*", "desktop/main.cjs", "desktop/fluxmark.ico", "package.json", "!node_modules/**/*"],
   "win": {
     "target": [{ "target": "portable", "arch": ["x64"] }],
     "artifactName": "FluxMark-${version}-Windows-${arch}.exe",
-    "signAndEditExecutable": false
+    "icon": "desktop/fluxmark.ico",
+    "signExecutable": false
   }
 }

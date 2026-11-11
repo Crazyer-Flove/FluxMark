@@ -13,6 +13,7 @@ function createShortcut(window) {
   const shortcut = path.join(app.getPath('desktop'), 'FluxMark.lnk');
   const created = shell.writeShortcutLink(shortcut, existsSync(shortcut) ? 'replace' : 'create', {
     target, cwd: path.dirname(target), description: 'FluxMark Markdown 编辑与放映',
+    icon: target, iconIndex: 0,
   });
   void dialog.showMessageBox(window, {
     type: created ? 'info' : 'error',
@@ -44,7 +45,8 @@ if (!app.requestSingleInstanceLock()) {
     });
 
     const window = new BrowserWindow({
-      width: 1280, height: 850, minWidth: 640, minHeight: 480,
+      width: 1280, height: 850, minWidth: 480, minHeight: 420,
+      icon: path.join(__dirname, 'fluxmark.ico'),
       webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
     });
     window.webContents.on('will-navigate', event => event.preventDefault());

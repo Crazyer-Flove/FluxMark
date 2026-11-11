@@ -262,7 +262,7 @@ export default function App() {
   const documentNameRef = useRef('当前文档.md');
   const annotationPages = useRef<Record<number, string>>({});
   const [isPresentation, setIsPresentation] = useState<boolean>(false);
-  const [showSidebar, setShowSidebar] = useState<boolean>(() => window.innerWidth > 640);
+  const [showSidebar, setShowSidebar] = useState<boolean>(() => window.innerWidth > 820);
   const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>('resources');
   const [showGraph, setShowGraph] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
