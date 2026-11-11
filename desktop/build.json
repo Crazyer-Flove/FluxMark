@@ -4,9 +4,19 @@
   "directories": { "output": "release" },
   "files": ["dist/**/*", "desktop/main.cjs", "desktop/fluxmark.ico", "package.json", "!node_modules/**/*"],
   "win": {
-    "target": [{ "target": "portable", "arch": ["x64"] }],
-    "artifactName": "FluxMark-${version}-Windows-${arch}.exe",
+    "target": [{ "target": "nsis", "arch": ["x64"] }],
+    "artifactName": "FluxMark-Setup-${version}-Windows-${arch}.exe",
     "icon": "desktop/fluxmark.ico",
     "signExecutable": false
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "FluxMark",
+    "installerIcon": "desktop/fluxmark.ico",
+    "uninstallerIcon": "desktop/fluxmark.ico"
   }
 }

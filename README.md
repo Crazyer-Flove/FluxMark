@@ -2,7 +2,7 @@
 
 FluxMark 是一个本地优先的 Markdown 编辑与放映工具。用它写文档、管理笔记，并把用 `---` 分隔的内容直接变成幻灯片。
 
-[Windows 便携版与构建说明](docs/WINDOWS.md) · [GitHub Releases](https://github.com/Crazyer-Flove/FluxMark/releases) · [更新记录](CHANGELOG.md)
+[在线版](https://fluxmark.vercel.app) · [Windows 安装与构建说明](docs/WINDOWS.md) · [GitHub Releases](https://github.com/Crazyer-Flove/FluxMark/releases) · [更新记录](CHANGELOG.md)
 
 ![FluxMark 写作区与文件导航](ui-preview/redesign-workspace.png)
 
@@ -22,6 +22,8 @@ FluxMark 是一个本地优先的 Markdown 编辑与放映工具。用它写文�
 
 应用外观提供白、黑、米黄和天蓝四种主题，Markdown 正文皮肤可从编辑区工具栏独立切换。
 
+在 Windows 桌面版和支持相应手势的 Chromium 浏览器中，触控板双指捏合可缩放整个工作区，按 `Ctrl + 0` 恢复 100%。放映浏览模式下，同一手势缩放当前幻灯片。
+
 ## 数据与 AI
 
 浏览器草稿保存在当前应用配置文件的本地存储中。清理站点数据或更换配置文件前，请导出重要文档。文件与文件夹功能取决于浏览器权限，建议在支持 File System Access API 的 Chromium 浏览器中使用网页版。
@@ -39,7 +41,7 @@ npm run lint
 npm run build
 ```
 
-开发服务器默认监听 3000 端口。Windows 桌面预览使用 `npm run desktop`，生成便携版使用 `npm run package:win`。更多说明见 [Windows 文档](docs/WINDOWS.md)。
+开发服务器默认监听 3000 端口。Windows 桌面预览使用 `npm run desktop`，生成安装程序使用 `npm run package:win`。更多说明见 [Windows 文档](docs/WINDOWS.md)。
 
 源码按 [MIT License](LICENSE) 发布。
 

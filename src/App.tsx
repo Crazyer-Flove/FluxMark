@@ -2,7 +2,7 @@ import {getPdfPages} from './utils/pdfPages';
 import {PresentationPreview} from './components/PresentationPreview';
 import {cleanDocumentHtml, parseSafeEditorContent, parseSafeEditorSlice} from './lib/editorContent';
 import {getPresentationLayout, splitPresentationSlides} from './utils/presentationLayout';
-import {enablePresentationPinch} from './utils/presentationPinch';
+import {enablePresentationPinch, wheelZoomFactor} from './utils/presentationPinch';
 import {withExportBrand} from './utils/exportBrand';
 import {WorkspaceChrome} from './components/WorkspaceChrome';
 import {ResourceTree} from './components/ResourceTree';
@@ -247,6 +247,7 @@ export default function App() {
     try { localStorage.setItem('fluxmark_markdown_skin', skin.id); } catch { /* Session preference remains active. */ }
   }
   const [zoom, setZoom] = useState<number>(1);
+  const [workspaceScale, setWorkspaceScale] = useState(1);
   const [showPresentationPreview, setShowPresentationPreview] = useState(false);
   const [fitSlides, setFitSlides] = useState(false);
   const [slideOverflow, setSlideOverflow] = useState(false);
@@ -408,6 +409,27 @@ export default function App() {
   
   // Refs
   const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const shell = containerRef.current;
+    if (!shell || isPresentation) return;
+    const wheel = (event: WheelEvent) => {
+      if (!event.ctrlKey || !event.deltaY || event.defaultPrevented) return;
+      event.preventDefault();
+      const factor = wheelZoomFactor(event);
+      setWorkspaceScale(scale => Math.min(1.5, Math.max(.75, scale * factor)));
+    };
+    const reset = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key !== '0') return;
+      event.preventDefault();
+      setWorkspaceScale(1);
+    };
+    shell.addEventListener('wheel', wheel, { passive: false });
+    window.addEventListener('keydown', reset);
+    return () => {
+      shell.removeEventListener('wheel', wheel);
+      window.removeEventListener('keydown', reset);
+    };
+  }, [isPresentation]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const directoryInputRef = useRef<HTMLInputElement>(null);
   const cropperRef = useRef<Cropper | null>(null);
@@ -2521,7 +2543,8 @@ useEffect(() => {
   }, [isPresentation, fitSlides, slideEditing, validSlideIndex, activeSlideHtml, slideLayout, slideEditor, markdownSkin]);
 
   return (
-    <div ref={containerRef} className="flux-shell h-screen flex flex-col font-sans relative overflow-hidden select-none bg-[var(--bg-secondary)]">
+    <div ref={containerRef} className="flux-shell h-screen flex flex-col font-sans relative overflow-hidden select-none bg-[var(--bg-secondary)]"
+      style={isPresentation || workspaceScale === 1 ? undefined : {zoom: workspaceScale, height: `${100 / workspaceScale}dvh`}}>
       {/* --- 顶部工具栏 --- */}
       <WorkspaceChrome settings={settingsOpen} setSettings={setSettingsOpen} name={docName} status={saveState} sidebar={showSidebar} ai={showAIChat} theme={theme} themes={THEME_OPTIONS} font={fontFamily} fonts={FONT_OPTIONS}
         onName={setDocName} onSidebar={()=>setShowSidebar(v=>!v)} onAI={()=>setShowAIChat(v=>!v)} onPresent={()=>setShowPresentationPreview(true)} onTheme={v=>setTheme(v as Theme)} onFont={setFontFamily} onSave={saveFile}
